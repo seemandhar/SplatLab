@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Who Wrote This Paper? Autonomous Scientific Discovery for 3DGS Research</title>
+<meta name="description" content="GS-Scientist: an autonomous research system that reproduces published 3D Gaussian Splatting baselines, invents and trains extensions, and writes submission-ready manuscripts — with every reported number bound to a logged GPU run.">
+<meta property="og:title" content="Who Wrote This Paper? Autonomous Scientific Discovery for 3DGS Research">
+<meta property="og:description" content="An autonomous research system for 3D Gaussian Splatting: reproduce → ideate → train → ablate → write. 16 manuscripts, +0.18 to +3.78 dB over reproduced targets, real peer reviews.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="static/images/teaser.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#101828',
+        accent: { DEFAULT: '#4f46e5', soft: '#eef2ff', deep: '#3730a3' },
+      },
+      fontFamily: {
+        serif: ['Charter', 'Bitstream Charter', 'Sitka Text', 'Cambria', 'Georgia', 'serif'],
+        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+      }
+    }
+  }
+}
+</script>
+<style>
+  html { -webkit-font-smoothing: antialiased; }
+  .figure-card { background:#fff; border:1px solid #e2e8f0; border-radius:0.75rem; overflow:hidden; }
+  .zoomable { cursor: zoom-in; transition: opacity .15s; }
+  .zoomable:hover { opacity: .92; }
+  dialog::backdrop { background: rgba(15,23,42,.88); }
+  .eyebrow { letter-spacing: .14em; }
+  .tbl td, .tbl th { padding:.45rem .7rem; }
+  .tbl tbody tr.ours { background:#eef2ff; }
+  .paper-thumb { transition: transform .18s ease, box-shadow .18s ease; }
+  .paper-thumb:hover { transform: translateY(-4px); box-shadow: 0 12px 28px -8px rgba(30,41,59,.28); }
+  details.review summary::-webkit-details-marker { display:none; }
+  @media print { nav, dialog { display:none } }
+</style>
+</head>
+<body class="bg-[#fbfbfa] text-ink font-sans leading-relaxed">
+<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-accent text-white px-3 py-1 rounded">Skip to content</a>
+
+<!-- ══════════ NAV ══════════ -->
+<nav class="sticky top-0 z-40 bg-white/85 backdrop-blur border-b border-slate-200">
+  <div class="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between text-sm">
+    <a href="#" class="font-serif font-bold text-base tracking-tight">GS-Scientist <span class="text-slate-400 font-sans font-normal hidden sm:inline">· autonomous 3DGS research</span></a>
+    <div class="flex items-center gap-4 text-slate-600">
+      <a href="#method" class="hover:text-accent hidden md:inline">Method</a>
+      <a href="#results" class="hover:text-accent hidden md:inline">Results</a>
+      <a href="#papers" class="hover:text-accent">Papers</a>
+      <a href="#reviews" class="hover:text-accent">Peer&nbsp;Review</a>
+      <a href="#bibtex" class="hover:text-accent hidden sm:inline">BibTeX</a>
+      <a href="static/paper.pdf" class="bg-ink text-white px-3 py-1 rounded-md hover:bg-slate-700">PDF</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+<!-- ══════════ HERO ══════════ -->
+<header class="pt-14 pb-10 px-4 text-center">
+  <div class="max-w-4xl mx-auto">
+    <p class="inline-flex items-center gap-2 text-xs font-semibold uppercase eyebrow text-accent bg-accent-soft border border-indigo-200 rounded-full px-4 py-1.5 mb-6">
+      NeurIPS 2026 · Under Review
+    </p>
+    <h1 class="font-serif font-bold text-4xl sm:text-5xl lg:text-[3.4rem] leading-tight tracking-tight">
+      Who Wrote This Paper?
+      <span class="block text-2xl sm:text-3xl lg:text-4xl mt-3 text-slate-700 font-medium">Autonomous Scientific Discovery for 3DGS Research</span>
+    </h1>
+    <p class="mt-6 text-lg text-slate-500">Anonymous Authors <span class="mx-1 text-slate-300">·</span> <span class="italic">double-blind submission</span></p>
+    <p class="mt-5 max-w-3xl mx-auto text-[1.06rem] text-slate-600">
+      <span class="font-semibold text-ink">GS-Scientist</span> turns a one-line prompt — or no input at all — into a submission-ready
+      3D Gaussian Splatting manuscript: it reproduces a published baseline, invents an extension, trains and ablates it on real GPUs,
+      and writes the paper. <span class="font-semibold text-ink">Every reported number is bound to a logged training run.</span>
+    </p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a href="static/paper.pdf" class="inline-flex items-center gap-2 bg-ink text-white px-5 py-2.5 rounded-lg font-medium hover:bg-slate-700">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7.4L12.6 2H4zm8 1.5L16.5 8H12V3.5zM6 11h8v1.5H6V11zm0 3h8v1.5H6V14z"/></svg>
+        Paper (PDF)</a>
+      <a href="#papers" class="inline-flex items-center gap-2 bg-white border border-slate-300 px-5 py-2.5 rounded-lg font-medium hover:border-accent hover:text-accent">
+        🗂️ 16 Generated Papers</a>
+      <a href="#reviews" class="inline-flex items-center gap-2 bg-white border border-slate-300 px-5 py-2.5 rounded-lg font-medium hover:border-accent hover:text-accent">
+        ⚖️ Real Peer Reviews</a>
+      <span class="inline-flex items-center gap-2 bg-white border border-dashed border-slate-300 px-5 py-2.5 rounded-lg font-medium text-slate-400" title="Released upon publication">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Code — on publication</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════ TEASER ══════════ -->
+<section class="px-4">
+  <div class="max-w-6xl mx-auto">
+    <figure class="figure-card p-3 sm:p-5">
+      <img src="static/images/teaser.webp" alt="GS-Scientist overview: a one-line prompt enters a 36-agent hierarchy that searches a seven-category 3DGS novelty space with a verbal-Elo tournament, producing eight submission-ready manuscripts that each beat their reproduced target" class="w-full zoomable" loading="eager" onclick="zoom(this)">
+      <figcaption class="text-sm text-slate-500 mt-3 px-1">
+        <span class="font-semibold text-slate-700">A research lab in a single command.</span>
+        A prompt (or autonomous mode) drives 36 subagents through grounding, ideation, evolution, refinement, writing, and review.
+        Ideas are explored over a seven-category 3DGS novelty space and ranked by a grounded Elo tournament on <em>measured</em> GPU PSNR —
+        a standing falsifier subtracts Elo on every failed stress test. Each output manuscript beats its reproduced target.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ══════════ STAT BAND ══════════ -->
+<section class="px-4 mt-10">
+  <div class="max-w-6xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-px bg-slate-200 rounded-xl overflow-hidden border border-slate-200">
+    <div class="bg-white p-5 text-center"><div class="font-serif text-3xl font-bold text-accent">+3.78 dB</div><div class="text-xs text-slate-500 mt-1 uppercase eyebrow">largest PSNR gain over reproduced SOTA</div></div>
+    <div class="bg-white p-5 text-center"><div class="font-serif text-3xl font-bold text-accent">16</div><div class="text-xs text-slate-500 mt-1 uppercase eyebrow">manuscripts written end-to-end</div></div>
+    <div class="bg-white p-5 text-center"><div class="font-serif text-3xl font-bold text-accent">36</div><div class="text-xs text-slate-500 mt-1 uppercase eyebrow">specialised agents, 7 phases</div></div>
+    <div class="bg-white p-5 text-center"><div class="font-serif text-3xl font-bold text-accent">3 / 4</div><div class="text-xs text-slate-500 mt-1 uppercase eyebrow">accepted at a CVPR 2026 workshop</div></div>
+  </div>
+</section>
+
+<!-- ══════════ ABSTRACT ══════════ -->
+<section class="px-4 mt-16">
+  <div class="max-w-3xl mx-auto">
+    <h2 class="font-serif text-3xl font-bold text-center mb-6">Abstract</h2>
+    <div class="text-[1.02rem] text-slate-700 space-y-4 text-justify">
+      <p>Reproducing a published 3DGS paper takes weeks of expert engineering before any extension can be proposed. Prior
+      autonomous-research systems read papers, draft hypotheses, and write code, but suffer from limited template length,
+      executability, and traceability — none has been demonstrated end-to-end in a live computer-vision subfield with intense activity.</p>
+      <p><span class="font-semibold">GS-Scientist</span> is an autonomous research system for 3D Gaussian Splatting that addresses
+      these limitations. Given a research prompt, a target-paper URL, or no input at all, it reproduces a published baseline,
+      proposes an extension, trains and ablates across Mip-NeRF&nbsp;360 and LLFF, writes the manuscript, and binds every reported
+      number to a logged training run. Five design choices distinguish it: <span class="text-slate-900">(i)</span> candidates mutate
+      plugins from a verified-reproduction backbone matched to published baselines; <span class="text-slate-900">(ii)</span> a
+      cascade-weighted Elo tournament across eight islands scores on measured GPU PSNR with verbal-gradient feedback;
+      <span class="text-slate-900">(iii)</span> a standing falsifier subtracts Elo on failure, integrating stress-test survival into
+      selection; <span class="text-slate-900">(iv)</span> every reported number is bound to a logged training run, and the run cannot
+      terminate while any claim is unbacked; <span class="text-slate-900">(v)</span> a seven-category 3DGS taxonomy wraps
+      <code class="text-sm bg-slate-100 px-1 rounded">EVOLVE-BLOCK</code> markers in domain-aligned scaffolds transferable across 3DGS repositories.</p>
+      <p>GS-Scientist produces manuscripts that beat their reproduced target by <span class="font-semibold">+0.18 to +3.78&nbsp;dB PSNR</span>,
+      including +3.78&nbsp;dB on astrophotographic nebula rendering, for which no prior 3DGS method exists. The research cycle compresses
+      from months of graduate-student time to days of mostly autonomous compute.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ METHOD ══════════ -->
+<section id="method" class="px-4 mt-20 scroll-mt-16">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-center text-xs font-semibold uppercase eyebrow text-accent mb-2">How it works</p>
+    <h2 class="font-serif text-3xl font-bold text-center mb-8">From idea to compiled PDF, unattended</h2>
+    <figure class="figure-card p-3 sm:p-5">
+      <img src="static/images/architecture.webp" alt="Full GS-Scientist architecture: a professor/PhD/undergrad agent hierarchy over six stages — grounding, grounded ideation with Elo, verified-plugin implementation via EVOLVE-BLOCK hooks, cascade-weighted tournament with verbal Elo and falsification, integrity audit, and reviewer-driven manuscript synthesis" class="w-full zoomable" loading="eager" onclick="zoom(this)">
+      <figcaption class="text-sm text-slate-500 mt-3 px-1">
+        <span class="font-semibold text-slate-700">The full lab, stage by stage.</span>
+        A master orchestrator (the <em>professor</em>) delegates to phase coordinators (<em>PhD students</em>) and atomic leaf agents
+        (<em>undergraduates</em>): grounding → grounded ideation with idea-level Elo pre-selection → verified-plugin implementation over
+        <code class="text-xs bg-slate-100 px-1 rounded">EVOLVE-BLOCK</code> hooks → cascade-weighted tournament with verbal Elo, falsification,
+        and an eight-island evolutionary search → integrity audit (provenance, novelty, claims) → reviewer-driven manuscript synthesis.
+      </figcaption>
+    </figure>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-8">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">🧬</div>
+        <h3 class="font-semibold mb-1.5">Verified-reproduction backbone</h3>
+        <p class="text-sm text-slate-600">No experiment spawns until the target paper is reproduced within 0.2 dB on our GPUs. Every candidate mutates a plugin already verified to match its published baseline — so every reported gain has a fixed external reference.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">🏆</div>
+        <h3 class="font-semibold mb-1.5">Grounded Elo on real GPU PSNR</h3>
+        <p class="text-sm text-slate-600">A cascade-weighted Elo tournament across eight islands ranks candidates on <em>measured</em> ns-train PSNR — never model-judged scores — with ReEvo-style verbal gradients fed back to the ideator on surprising upsets.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">⚔️</div>
+        <h3 class="font-semibold mb-1.5">In-loop falsification</h3>
+        <p class="text-sm text-slate-600">Every surviving candidate faces three adversarial attacks — edge scene, sparse view, load-bearing hyper-parameter ablation. Each failure subtracts 30 Elo, making stress-test survival a selection signal, not a post-hoc check.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">🔗</div>
+        <h3 class="font-semibold mb-1.5">Claim-backed verification</h3>
+        <p class="text-sm text-slate-600">A verifier scans the compiled draft for every numerical claim and searches the ledger for a backing measurement. The run <em>cannot terminate</em> while any claim is unbacked — no hallucinated numbers can ship.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">🗺️</div>
+        <h3 class="font-semibold mb-1.5">Domain-aligned modification space</h3>
+        <p class="text-sm text-slate-600">Seven 3DGS novelty categories — losses, densification, rasterisation, parameterisation, optimisation, scaffolds, geometric priors — wrap <code class="text-xs bg-slate-100 px-1 rounded">EVOLVE-BLOCK</code> markers that an auto-mapper places in <em>any</em> 3DGS repository.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="text-2xl mb-2">🧠</div>
+        <h3 class="font-semibold mb-1.5">Two-tier context compaction</h3>
+        <p class="text-sm text-slate-600">A pinned 10k-token summary of the run's anchor facts is written once and never rewritten; later compactions append 4k-token deltas. The professor never forgets what it is trying to beat, across 24–48 h runs.</p>
+      </div>
+    </div>
+
+    <!-- systems view -->
+    <figure class="figure-card p-3 sm:p-5 mt-8">
+      <img src="static/images/pipeline.webp" alt="Systems view: tick-based master orchestrator over a durable ledger.json, gpu_state.json, and append-only events journal, driving seven phases from research and reproduction to writing and review" class="w-full zoomable" loading="lazy" onclick="zoom(this)">
+      <figcaption class="text-sm text-slate-500 mt-3 px-1">
+        <span class="font-semibold text-slate-700">The systems view.</span> The orchestrator is tick-based and stateless across ticks:
+        all run state lives in <code class="text-xs bg-slate-100 px-1 rounded">ledger.json</code>, a GPU pool file, and an append-only event
+        journal — so a 24–48 h run survives crashes, restarts, and context compaction, and resumes from its last checkpoint.
+      </figcaption>
+    </figure>
+
+    <!-- Elo figure -->
+    <figure class="figure-card p-3 sm:p-5 mt-8">
+      <img src="static/images/elo.webp" alt="Elo-based top-K hypothesis selection: generation, pairwise ranking tournament with reflection agents, rating distribution, and promotion of top-K hypotheses to evolution" class="w-full zoomable" loading="lazy" onclick="zoom(this)">
+      <figcaption class="text-sm text-slate-500 mt-3 px-1">
+        <span class="font-semibold text-slate-700">Hypothesis selection as a tournament.</span>
+        Candidate ideas enter at Elo 1200 and battle pairwise; ratings converge after enough matches and only the top-K advance.
+        Elo needs no absolute ground-truth score — only pairwise outcomes — which suits research hypotheses, where relative judgments are the reliable ones.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ══════════ RESULTS ══════════ -->
+<section id="results" class="px-4 mt-20 scroll-mt-16">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-center text-xs font-semibold uppercase eyebrow text-accent mb-2">Results</p>
+    <h2 class="font-serif text-3xl font-bold text-center mb-3">Eleven reproduced targets. Eleven wins.</h2>
+    <p class="text-center text-slate-600 max-w-3xl mx-auto mb-8">Each <em>SOTA</em> row below is the target <strong>reproduced on our GPUs</strong> under the reproduce-first contract — not paraphrased from its paper. The limitation column is the bottleneck-analyst diagnosis that conditioned ideation for that run.</p>
+
+    <div class="figure-card overflow-x-auto">
+      <table class="tbl w-full text-sm min-w-[760px]">
+        <thead class="bg-slate-50 text-left text-slate-500 text-xs uppercase eyebrow">
+          <tr><th>Setting</th><th>Method</th><th>Limitation attacked / fix</th><th class="text-right">PSNR ↑</th><th class="text-right">SSIM ↑</th><th class="text-right">LPIPS ↓</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr class="bg-slate-100/70"><td colspan="6" class="font-semibold text-slate-700">Novel scenes — vanilla 3DGS baseline</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Nebula<br><span class="text-xs">180 fr · 30k it</span></td>
+            <td>3DGS</td><td class="text-slate-500 text-[13px]">pinhole ignores OPENCV distortion; SfM yields ≈0 stars</td><td class="text-right">32.58</td><td class="text-right">0.914</td><td class="text-right">0.278</td></tr>
+          <tr class="ours"><td class="font-semibold">Nebula3DGS-v2 <span class="text-accent">(ours)</span></td><td class="text-[13px]">3DGS-MCMC sampler + saturation-driven star seeder</td><td class="text-right font-bold">36.36 <span class="text-emerald-600 text-xs font-semibold">+3.78</span></td><td class="text-right font-bold">0.945</td><td class="text-right font-bold">0.201</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Bubble<br><span class="text-xs">200 fr · 30k it</span></td>
+            <td>3DGS</td><td class="text-slate-500 text-[13px]">SH cannot represent thin-film iridescence</td><td class="text-right">27.40</td><td class="text-right">0.857</td><td class="text-right">0.337</td></tr>
+          <tr class="ours"><td class="font-semibold">BubbleGS <span class="text-accent">(ours)</span></td><td class="text-[13px]">MCMC chassis + Snell/Fresnel two-pass shell renderer</td><td class="text-right font-bold">30.11 <span class="text-emerald-600 text-xs font-semibold">+2.71</span></td><td class="text-right font-bold">0.906</td><td class="text-right font-bold">0.224</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Diamond</td>
+            <td>3DGS</td><td class="text-slate-500 text-[13px]">no refraction model; transparent geometry collapses</td><td class="text-right">11.60</td><td class="text-right text-slate-400">—</td><td class="text-right text-slate-400">—</td></tr>
+          <tr class="ours"><td class="font-semibold">DiamondGS <span class="text-accent">(ours)</span></td><td class="text-[13px]">Snell-law-guided losses + learned transparency mask</td><td class="text-right font-bold">20.17 <span class="text-emerald-600 text-xs font-semibold">+8.57</span></td><td class="text-right text-slate-400">—</td><td class="text-right text-slate-400">—</td></tr>
+          <tr class="bg-slate-100/70"><td colspan="6" class="font-semibold text-slate-700">Improving published SOTA</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360<br><span class="text-xs">7 sc · 30k it</span></td>
+            <td>FastGS</td><td class="text-slate-500 text-[13px]">{0,1} thresholded pixel-count is frequency-blind</td><td class="text-right">29.12</td><td class="text-right">0.858</td><td class="text-right">0.217</td></tr>
+          <tr class="ours"><td class="font-semibold">TileFocalGS <span class="text-accent">(ours)</span></td><td class="text-[13px]">rank-graded per-tile weights, EMA-smoothed across views</td><td class="text-right font-bold">29.69 <span class="text-emerald-600 text-xs font-semibold">+0.57</span></td><td class="text-right font-bold">0.869</td><td class="text-right font-bold">0.194</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360<br><span class="text-xs">9 sc · 109 s wall</span></td>
+            <td>FastGS</td><td class="text-slate-500 text-[13px]">opacity reset destabilises late refinement</td><td class="text-right">25.65</td><td class="text-right">0.751</td><td class="text-right">0.311</td></tr>
+          <tr class="ours"><td class="font-semibold">FreezeGS <span class="text-accent">(ours)</span></td><td class="text-[13px]">freeze geometry, disable opacity reset in phase 2</td><td class="text-right font-bold">26.08 <span class="text-emerald-600 text-xs font-semibold">+0.43</span></td><td class="text-right font-bold">0.761</td><td class="text-right font-bold">0.300</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360<br><span class="text-xs">7 sc · 50 s wall</span></td>
+            <td>splatfacto</td><td class="text-slate-500 text-[13px]">severely under-converged at 50 s</td><td class="text-right">20.53</td><td class="text-right">0.593</td><td class="text-right">0.505</td></tr>
+          <tr class="ours"><td class="font-semibold">View-Curriculum-GS <span class="text-accent">(ours)</span></td><td class="text-[13px]">first 15 s on 30% most pose-similar views, then full set</td><td class="text-right font-bold">23.36 <span class="text-emerald-600 text-xs font-semibold">+2.83</span></td><td class="text-right font-bold">0.686</td><td class="text-right font-bold">0.412</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360</td>
+            <td>Opti3DGS</td><td class="text-slate-500 text-[13px]">coarse-to-fine schedule under-densifies high-freq regions</td><td class="text-right">27.71</td><td class="text-right">0.841</td><td class="text-right">0.209</td></tr>
+          <tr class="ours"><td class="font-semibold">Opti3DGS-AdaEnt <span class="text-accent">(ours)</span></td><td class="text-[13px]">adaptive densification threshold + opacity entropy regulariser</td><td class="text-right font-bold">28.05 <span class="text-emerald-600 text-xs font-semibold">+0.34</span></td><td class="text-right font-bold">0.853</td><td class="text-right font-bold">0.125</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360</td>
+            <td>MSAA-3DGS</td><td class="text-slate-500 text-[13px]">multi-sample AA blurs fine contrast</td><td class="text-right">25.35</td><td class="text-right">0.758</td><td class="text-right">0.369</td></tr>
+          <tr class="ours"><td class="font-semibold">MSAA-Bilat <span class="text-accent">(ours)</span></td><td class="text-[13px]">bilateral-grid contrast recovery</td><td class="text-right font-bold">26.19 <span class="text-emerald-600 text-xs font-semibold">+0.84</span></td><td class="text-right font-bold">0.791</td><td class="text-right font-bold">0.293</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360</td>
+            <td>GNS</td><td class="text-slate-500 text-[13px]">15%-budget regime sacrifices AA and refinement</td><td class="text-right">25.97</td><td class="text-right">0.891</td><td class="text-right font-bold">0.095</td></tr>
+          <tr class="ours"><td class="font-semibold">GNS-AA <span class="text-accent">(ours)</span></td><td class="text-[13px]">AA rasterisation + denser SfM init + regularisers</td><td class="text-right font-bold">26.15 <span class="text-emerald-600 text-xs font-semibold">+0.18</span></td><td class="text-right font-bold">0.902</td><td class="text-right">0.097</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">Mip-NeRF 360</td>
+            <td>CompGS</td><td class="text-slate-500 text-[13px]">static codebook drift; centroids stale by late training</td><td class="text-right">28.28</td><td class="text-right">0.894</td><td class="text-right">0.153</td></tr>
+          <tr class="ours"><td class="font-semibold">CompGS-EMA <span class="text-accent">(ours)</span></td><td class="text-[13px]">EMA centroid updates + gradient-based codebook refinement</td><td class="text-right font-bold">28.50 <span class="text-emerald-600 text-xs font-semibold">+0.22</span></td><td class="text-right font-bold">0.899</td><td class="text-right font-bold">0.146</td></tr>
+          <tr><td rowspan="2" class="align-top pt-3 text-slate-500">LLFF</td>
+            <td>DWTGS</td><td class="text-slate-500 text-[13px]">wavelet basis under-constrained without high-freq supervision</td><td class="text-right">18.68</td><td class="text-right">0.510</td><td class="text-right">0.374</td></tr>
+          <tr class="ours"><td class="font-semibold">DWTGS-Patch <span class="text-accent">(ours)</span></td><td class="text-[13px]">patch structure loss + opacity/normal/depth regularisers</td><td class="text-right font-bold">21.09 <span class="text-emerald-600 text-xs font-semibold">+2.41</span></td><td class="text-right font-bold">0.725</td><td class="text-right font-bold">0.281</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-slate-400 mt-2 px-1">Winners must clear a measured noise-floor gate (Δ ≥ 2σ over ≥3 baseline seeds). Runs that did not clear the gate terminated as research logs, not papers.</p>
+
+    <figure class="figure-card p-3 sm:p-5 mt-8">
+      <img src="static/images/qualitative.webp" alt="Qualitative comparison grid: ground truth, ground-truth crop, reproduced SOTA, and ours across eight scenes including nebula, bicycle, bubble, and vegetation crops" class="w-full zoomable" loading="lazy" onclick="zoom(this)">
+      <figcaption class="text-sm text-slate-500 mt-3 px-1">
+        <span class="font-semibold text-slate-700">Qualitative comparisons.</span> GT / GT-crop / reproduced SOTA / ours. Gains concentrate exactly
+        where each run's bottleneck analysis pointed: star-region recovery in the nebula, thin structures, dark interiors, and high-frequency vegetation.
+      </figcaption>
+    </figure>
+
+    <!-- human study -->
+    <div class="mt-8 grid md:grid-cols-2 gap-4">
+      <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <div class="flex gap-4">
+          <div class="min-w-0">
+            <h3 class="font-serif text-xl font-bold mb-2">Blind expert study: are the ideas any good?</h3>
+            <p class="text-sm text-slate-600">Following the protocol of Si et al., 10 neural-rendering researchers blind-reviewed 30 style-normalised proposals (20 pipeline, 10 written by PhD students) — 300 reviews total.</p>
+          </div>
+          <img src="static/images/study_form_idea.webp" alt="The blind review form used in the expert study: novelty, excitement, feasibility, and expected effectiveness on anchored 1-10 scales" class="zoomable w-20 shrink-0 rounded border border-slate-200 self-start" loading="lazy" onclick="zoom(this)" title="The anchored review form (click to zoom)">
+        </div>
+        <div class="mt-4 flex items-end gap-6">
+          <div><div class="font-serif text-3xl font-bold text-accent">5.71 <span class="text-base text-slate-400 font-sans font-normal">vs 4.92</span></div>
+          <div class="text-xs text-slate-500 uppercase eyebrow mt-1">AI vs human novelty (p = 0.041)</div></div>
+          <div><div class="font-serif text-3xl font-bold text-ink">13<span class="text-base text-slate-400">/20</span></div>
+          <div class="text-xs text-slate-500 uppercase eyebrow mt-1">AI ideas trained to convergence</div></div>
+        </div>
+        <p class="text-xs text-slate-400 mt-3">AI ideas scored marginally lower on feasibility (6.05 vs 6.50, n.s.) — replicating the human-study findings of Si et al. on a live 3D-vision subfield.</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-6">
+        <h3 class="font-serif text-xl font-bold mb-2">Months → days</h3>
+        <p class="text-sm text-slate-600">The classical cycle — read, reproduce, extend, train, ablate, write — is bounded by researcher time. GS-Scientist compresses it to days of mostly autonomous compute:</p>
+        <ul class="mt-3 space-y-2 text-sm text-slate-600">
+          <li class="flex gap-2"><span class="text-accent font-bold">·</span> 24–48 h wall-clock per run, resumable from a durable ledger after any crash</li>
+          <li class="flex gap-2"><span class="text-accent font-bold">·</span> a 4-stage compute cascade filters 23 of 24 candidates before full training — ~150 GPU-days would otherwise be needed per run</li>
+          <li class="flex gap-2"><span class="text-accent font-bold">·</span> peer baselines harvested from the target's own tables: O(1) GPU cost instead of O(N) reproductions</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ PAPER GALLERY ══════════ -->
+<section id="papers" class="px-4 mt-20 scroll-mt-16">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-center text-xs font-semibold uppercase eyebrow text-accent mb-2">The output</p>
+    <h2 class="font-serif text-3xl font-bold text-center mb-3">16 machine-written manuscripts</h2>
+    <p class="text-center text-slate-600 max-w-3xl mx-auto mb-8">
+      Every first page below is a real compiled PDF from one autonomous run — method invented, trained, ablated, figured, written,
+      and revised without human editing. Click any card to read the full paper.
+    </p>
+    <div id="gallery" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+    <p class="text-xs text-slate-400 mt-3 text-center">Badges: <span class="text-emerald-600 font-medium">green</span> — accepted at the CVPR 2026 E2E3D workshop · <span class="text-rose-500 font-medium">red</span> — rejected · <span class="text-accent font-medium">indigo</span> — headline result of its run.</p>
+  </div>
+</section>
+
+<!-- ══════════ PEER REVIEW ══════════ -->
+<section id="reviews" class="px-4 mt-20 scroll-mt-16">
+  <div class="max-w-6xl mx-auto">
+    <p class="text-center text-xs font-semibold uppercase eyebrow text-accent mb-2">The reality check</p>
+    <h2 class="font-serif text-3xl font-bold text-center mb-3">Real reviewers. Real decisions.</h2>
+    <p class="text-center text-slate-600 max-w-3xl mx-auto mb-8">
+      Four fully-autonomous manuscripts were submitted to the <span class="font-semibold">CVPR 2026 Workshop on End-to-End 3D (E2E3D)</span>,
+      following the submission protocol described in the paper (§4.6). Human reviewers scored them like any other submission.
+      <span class="font-semibold text-ink">Three were accepted as posters; one was rejected.</span>
+    </p>
+
+    <!-- 3/4 accepted — cropped decision strips -->
+    <div class="max-w-5xl mx-auto mb-10">
+      <div class="text-center mb-5">
+        <span class="inline-flex items-baseline gap-3 bg-white border border-slate-200 rounded-2xl px-8 py-4 shadow-sm">
+          <span class="font-serif text-5xl font-bold text-emerald-600">3<span class="text-slate-300 mx-1">/</span>4</span>
+          <span class="text-left text-sm text-slate-600 leading-snug">machine-written papers<br><span class="font-semibold text-ink">accepted at a real CVPR 2026 workshop</span></span>
+        </span>
+      </div>
+      <div class="space-y-3">
+        <figure class="figure-card border-l-4 !border-l-emerald-400 p-2">
+          <img src="static/images/reviews/row_attdis.webp" alt="OpenReview entry for AttDis & Friends: average rating 5.00 with a reviewer rating of 6, decision Accept (Poster), authors anonymous" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+          <figcaption class="text-xs text-slate-500 mt-1.5 px-1"><span class="font-semibold text-emerald-600">Accept (Poster) · avg 5.00</span> — <em>"Rating 6: Accept — Top 1% — exceptional paper with clear novelty, strong technical quality, strong evidence, and broad expected impact."</em></figcaption>
+        </figure>
+        <figure class="figure-card border-l-4 !border-l-emerald-400 p-2">
+          <img src="static/images/reviews/row_needleswap.webp" alt="OpenReview entry for the NeedleSwap paper: average rating 4.50, decision Accept (Poster), authors anonymous" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+          <figcaption class="text-xs text-slate-500 mt-1.5 px-1"><span class="font-semibold text-emerald-600">Accept (Poster) · avg 4.50</span> — <em>"Simple, well-motivated intervention… honest framing… a good workshop paper."</em></figcaption>
+        </figure>
+        <figure class="figure-card border-l-4 !border-l-emerald-400 p-2">
+          <img src="static/images/reviews/row_auditsplat.webp" alt="OpenReview entry for AuditSplat: average rating 3.50, decision Accept (Poster), authors anonymous" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+          <figcaption class="text-xs text-slate-500 mt-1.5 px-1"><span class="font-semibold text-emerald-600">Accept (Poster) · avg 3.50</span> — <em>"Generally well written and appropriately scoped… transparent about limitations"</em> — from a reviewer at confidence 5/5.</figcaption>
+        </figure>
+        <figure class="figure-card border-l-4 !border-l-rose-300 p-2 opacity-90">
+          <img src="static/images/reviews/row_tilefocalgs.webp" alt="OpenReview entry for TileFocalGS: average rating 3.00 with split reviews of 5 and 1, decision Reject, authors anonymous" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+          <figcaption class="text-xs text-slate-500 mt-1.5 px-1"><span class="font-semibold text-rose-500">Reject · avg 3.00</span> — split reviews (5 vs 1). The system does not win every time, and the failure is part of the data.</figcaption>
+        </figure>
+      </div>
+      <p class="text-xs text-slate-400 mt-2 text-center">Author names redacted from the OpenReview screenshots for double-blind review. Reviewers scored the papers like any other submission.</p>
+    </div>
+
+    <h3 class="font-serif text-xl font-bold text-center mt-10 mb-4">Read the full official reviews</h3>
+    <div class="grid md:grid-cols-3 gap-4 mt-4">
+      <figure class="figure-card p-2">
+        <img src="static/images/reviews/review_attdis.webp" alt="Full official reviews for AttDis & Friends, including a rating of 6 (Accept, Top 1%)" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+        <figcaption class="text-xs text-slate-500 mt-2 px-1">AttDis &amp; Friends — official reviews (ratings 6 and 4).</figcaption>
+      </figure>
+      <figure class="figure-card p-2">
+        <img src="static/images/reviews/review_needleswap.webp" alt="Full official reviews for the NeedleSwap paper with ratings 5 and 4 and an Accept (Poster) decision" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+        <figcaption class="text-xs text-slate-500 mt-2 px-1">NeedleSwap — official reviews (ratings 5 and 4).</figcaption>
+      </figure>
+      <figure class="figure-card p-2">
+        <img src="static/images/reviews/review_auditsplat.webp" alt="Full official review for AuditSplat with rating 4 at confidence 5 and an Accept (Poster) decision" class="w-full zoomable rounded" loading="lazy" onclick="zoom(this)">
+        <figcaption class="text-xs text-slate-500 mt-2 px-1">AuditSplat — official review (rating 4, confidence 5).</figcaption>
+      </figure>
+    </div>
+
+    <div class="mt-8 bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-900">
+      <p class="font-semibold mb-1">⚖️ Ethics &amp; broader impact</p>
+      <p>A tool that compresses months to days can flood peer review designed for human pace. We recommend that derivative submissions be
+      <em>labelled</em> and ship their experiment ledger, and we discourage volume submissions. The per-field cost of a verified-reproduction
+      backbone biases capability toward pre-engineered subfields; the integrity audit itself must be audited. GS-Scientist is a research
+      instrument, <span class="font-semibold">not a paper-mill backend</span>. See the paper for the full discussion and submission protocol.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ BIBTEX ══════════ -->
+<section id="bibtex" class="px-4 mt-20 scroll-mt-16">
+  <div class="max-w-3xl mx-auto">
+    <h2 class="font-serif text-3xl font-bold text-center mb-6">BibTeX</h2>
+    <div class="relative">
+      <button onclick="copyBib(this)" class="absolute top-3 right-3 text-xs bg-slate-700 text-slate-100 px-2.5 py-1 rounded hover:bg-slate-600">Copy</button>
+      <pre id="bib" class="bg-ink text-slate-200 text-[13px] rounded-xl p-5 overflow-x-auto font-mono">@inproceedings{anonymous2026whowrote,
+  title     = {Who Wrote This Paper? Autonomous Scientific
+               Discovery for 3DGS Research},
+  author    = {Anonymous Authors},
+  booktitle = {Under review at NeurIPS},
+  year      = {2026},
+  note      = {Code, manuscripts, experiment ledgers, and the
+               cross-run paper store will be released.}
+}</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ FOOTER ══════════ -->
+<footer class="mt-20 border-t border-slate-200 bg-white">
+  <div class="max-w-6xl mx-auto px-4 py-10 text-center text-sm text-slate-500">
+    <p class="font-serif text-lg text-ink mb-2">Who Wrote This Paper?</p>
+    <p>Anonymous project page for double-blind review · NeurIPS 2026 submission</p>
+    <p class="mt-2 text-xs text-slate-400">All PSNR/SSIM/LPIPS numbers on this page trace to logged training runs in the released experiment ledgers.<br>
+    This page — like the manuscripts above — was assembled by an automated pipeline. Naturally.</p>
+  </div>
+</footer>
+</main>
+
+<!-- ══════════ LIGHTBOX ══════════ -->
+<dialog id="lightbox" class="bg-transparent p-0 max-w-[96vw] max-h-[94vh] outline-none" onclick="this.close()">
+  <img id="lightbox-img" src="" alt="" class="max-w-[96vw] max-h-[94vh] rounded-lg shadow-2xl bg-white">
+</dialog>
+
+<script>
+// ── gallery data ─────────────────────────────────────────────
+const PAPERS = [
+  {id:'run_20260501_212753', t:'Nebula3DGS: Scene-Physics-Grounded 3DGS for Astronomical Volumetric-Emissive Captures', d:'May 1, 2026', badge:'+3.78 dB', bc:'indigo'},
+  {id:'run_20260502_095036', t:'AttDis & Friends: Three Lightweight Uncertainty Channels in Frozen Feed-Forward 3DGS', d:'May 2, 2026', badge:'Accepted · CVPR’26 WS', bc:'green'},
+  {id:'run_20260427_041329', t:'Outdoor-Targeted Perceptual Specialisation in 3DGS-MCMC (NeedleSwap)', d:'Apr 27, 2026', badge:'Accepted · CVPR’26 WS', bc:'green'},
+  {id:'run_20260503_050138', t:'AuditSplat: Self-Auditing Feed-Forward 3DGS for Web-Scale Auto-Annotation', d:'May 3, 2026', badge:'Accepted · CVPR’26 WS', bc:'green'},
+  {id:'run_20260502_025645', t:'BubbleGS: Physics-Aware Layers on MCMC Gaussian Splatting for Soap Bubbles', d:'May 2, 2026', badge:'+2.71 dB', bc:'indigo'},
+  {id:'run_20260418_225812', t:'View-Curriculum-GS: Pose-Similarity View Scheduling for 50-Second 3DGS', d:'Apr 18, 2026', badge:'+2.83 dB', bc:'indigo'},
+  {id:'run_20260424_070505', t:'TileFocalGS: Per-View Per-Tile Adaptive Loss Weighting for Fast GS', d:'Apr 24, 2026', badge:'Rejected · CVPR’26 WS', bc:'red'},
+  {id:'run_20260419_195749', t:'FreezeGS: Fast Gaussian Splatting via Phase-2 Densification Freeze', d:'Apr 19, 2026', badge:'+0.43 dB', bc:'indigo'},
+  {id:'run_20260430_223610', t:'BayesPose: Per-Gaussian Inverse-Variance Preconditioning for 3DGS', d:'Apr 30, 2026'},
+  {id:'run_20260421_105202', t:'Contracted-Space Vacancy Fields and Normal-Residual SH Pruning', d:'Apr 21, 2026'},
+  {id:'run_20260423_010344', t:'ISE-Splat: Implicit Support, Explicit Rendering — Coupling 3DGS with a Sparse-Voxel SDF', d:'Apr 23, 2026'},
+  {id:'run_20260424_215302', t:'LEGS-Bench: A Unified Evaluation Protocol for Language-Embedded 3DGS', d:'Apr 24, 2026'},
+  {id:'run_20260424_231426', t:'ViewConsistencyBench: Quantifying View-Inconsistency in Language-Grounded 3DGS', d:'Apr 24, 2026'},
+  {id:'run_20260426_085848', t:'SceneGraphGS: Compositional Multi-Agent Editing of Scaffold-GS Scenes', d:'Apr 26, 2026'},
+  {id:'run_20260419_080529', t:'A Systematic Evaluation of NeRF-Inspired Mechanisms for 3DGS', d:'Apr 19, 2026', badge:'Negative-result study', bc:'slate'},
+  {id:'run_20260503_085533', t:'PriorSplat: Compositional Regression in End-to-End 3D Priors for Per-Scene GS', d:'May 3, 2026', badge:'Negative-result study', bc:'slate'},
+];
+const BC = {
+  green:  'bg-emerald-100 text-emerald-700',
+  red:    'bg-rose-100 text-rose-600',
+  indigo: 'bg-indigo-100 text-indigo-700',
+  slate:  'bg-slate-100 text-slate-600',
+};
+document.getElementById('gallery').innerHTML = PAPERS.map(p => `
+  <a href="static/papers/${p.id}.pdf" target="_blank" rel="noopener"
+     class="paper-thumb block bg-white border border-slate-200 rounded-lg overflow-hidden group">
+    <div class="relative">
+      <img src="static/images/firstpages/${p.id}_thumb.webp" alt="First page of: ${p.t.replace(/"/g,'&quot;')}" loading="lazy" class="w-full">
+      ${p.badge ? `<span class="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${BC[p.bc]}">${p.badge}</span>` : ''}
+      <span class="absolute inset-0 bg-gradient-to-t from-slate-900/70 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+        <span class="text-white text-[11px] font-medium">Open PDF →</span>
+      </span>
+    </div>
+    <div class="p-2.5 border-t border-slate-100">
+      <p class="text-[11.5px] font-medium leading-snug line-clamp-3">${p.t}</p>
+      <p class="text-[10px] text-slate-400 mt-1">${p.d} · autonomous run</p>
+    </div>
+  </a>`).join('');
+
+// ── lightbox ─────────────────────────────────────────────────
+const lb = document.getElementById('lightbox'), lbi = document.getElementById('lightbox-img');
+function zoom(img){ lbi.src = img.src; lbi.alt = img.alt; lb.showModal(); }
+
+// ── bibtex copy ──────────────────────────────────────────────
+function copyBib(btn){
+  navigator.clipboard.writeText(document.getElementById('bib').innerText)
+    .then(()=>{ btn.textContent='Copied ✓'; setTimeout(()=>btn.textContent='Copy',1500); });
+}
+</script>
+</body>
+</html>

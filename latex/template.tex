@@ -1,0 +1,107 @@
+% ═══════════════════════════════════════════════════════════════════════
+% PAPER SCAFFOLD — splatlab
+%
+% Closely mirrors the official CVPR 2026 author-kit layout
+% (https://github.com/cvpr-org/author-kit).
+%
+% Writer agents fill `sections/*.tex` files; `latex-assembler` compiles
+% `main.tex` (this file) after copying `cvpr.sty` + `ieeenat_fullname.bst`
+% + `preamble.tex` into the build dir. Agent-only `% AGENT: ...` comments
+% are stripped by the assembler before shipping.
+%
+% IMPORTANT: cvpr.sty already auto-loads many packages (times, xspace,
+% xcolor, graphicx, amsmath, amssymb, booktabs, natbib, caption,
+% subcaption, cleveref, url). Do NOT redeclare them here or you'll get
+% "Option clash" errors at compile time.
+% ═══════════════════════════════════════════════════════════════════════
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%% PAPER TYPE — chosen automatically by latex-assembler
+%   \usepackage{cvpr}              % CAMERA-READY (final submission)
+%   \usepackage[review]{cvpr}      % REVIEW (anonymous submission)
+%   \usepackage[pagenumbers]{cvpr} % ARXIV / internal
+% Default for autonomous runs = pagenumbers (arxiv-ready with page numbers)
+\usepackage[pagenumbers]{cvpr}
+
+% Preamble with tweaks (\todo, microtype, math operators).
+\input{preamble}
+
+% hyperref with CVPR-blue links + pagebackref (helpful for reviewers).
+\definecolor{cvprblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=cvprblue]{hyperref}
+
+% Extra packages cvpr.sty does NOT load — only add ones we actually need.
+\usepackage{amsfonts}     % extra math fonts (amsmath/amssymb already loaded)
+\usepackage{multirow}     % tables with merged cells
+\usepackage{algorithm}    % pseudocode floats
+\usepackage{algorithmic}  % pseudocode body
+\usepackage{enumitem}     % tight list customization
+
+\graphicspath{{figures/}}
+
+% ──── Macros (writer agents may add method-specific macros below) ────
+\newcommand{\ours}{METHOD\_NAME}     % AGENT: replace with short method name
+\newcommand{\best}[1]{\textbf{#1}}   % used in tables for the winning cell
+
+%%%%%%%%% PAPER ID — latex-assembler overwrites these placeholders
+\def\paperID{*****}
+\def\confName{CVPR}
+\def\confYear{2026}
+
+%%%%%%%%% TITLE — latex-assembler replaces PAPER_TITLE_PLACEHOLDER
+\title{PAPER\_TITLE\_PLACEHOLDER}
+
+%%%%%%%%% AUTHORS — anonymous by default; latex-assembler rewrites for camera-ready
+\author{Anonymous Submission\\
+Paper ID~\paperID
+}
+
+\begin{document}
+\maketitle
+
+%%%%%%%%% BODY — writer agents write to sections/*.tex; the assembler
+% preserves this include order. Each section's file is a standalone .tex
+% chunk (no \section heading inside the file — that's here).
+%
+% AGENT: DO NOT rewrite this block — writer agents are tuned to the
+% exact section filenames below.
+
+% ── abstract ──
+\begin{abstract}
+\input{sections/abstract}
+\end{abstract}
+
+% ── 1. Introduction ──
+\section{Introduction}
+\label{sec:intro}
+\input{sections/introduction}
+
+% ── 2. Related Work ──
+\section{Related Work}
+\label{sec:related}
+\input{sections/related_work}
+
+% ── 3. Method ──
+\section{Method}
+\label{sec:method}
+\input{sections/method}
+
+% ── 4. Experiments ──
+\section{Experiments}
+\label{sec:experiments}
+\input{sections/experiments}
+
+% ── 5. Conclusion ──
+\section{Conclusion}
+\label{sec:conclusion}
+\input{sections/conclusion}
+
+%%%%%%%%% REFERENCES — uses ieeenat_fullname.bst (copied by the assembler)
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{references}
+}
+
+\end{document}

@@ -1,0 +1,49 @@
+hours: 24
+max_budget_usd: null
+idea: "Frequency-aware adaptive densification for 3D Gaussian Splatting on Mip-NeRF 360."
+paper_url: null
+git_url: null
+model_preset: all_opus
+dataset: mipnerf360
+scenes:
+- garden
+- bicycle
+- stump
+- room
+- counter
+- kitchen
+- bonsai
+scenes_quick:
+- garden
+max_iters: 30000
+conda_env: nerfstudio
+gpu_indices:
+- 0
+- 1
+- 2
+- 3
+cascade_enabled: true
+paper_scope: full
+allow_repo_reproduction: true
+repo_reproduction_timeout_s: 7200
+workspace_root: ./workspace
+literature_root: ./literature
+gs_template_root: ./splatify/gs_template
+splatify_root: ./splatify
+latex_template: ./latex/template.tex
+references_bib: ./refs/references.bib
+discoveries_file: ./discoveries.txt
+novelty_file: ./novelty.txt
+initial_ideas: ./initial_ideas.md
+data_roots:
+  bubble: data/bubble
+  nebula: data/nebula
+  mipnerf360: data/mipnerf360
+  llff: data/nerf_llff_data
+stop_condition:
+  avg_psnr_delta: 2.0
+  avg_ssim_delta: 0.01
+  min_scenes_beaten: 1
+  wall_hours: 24
+tick_sleep_seconds_min: 60
+tick_sleep_seconds_max: 270

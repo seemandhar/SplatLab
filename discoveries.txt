@@ -1,0 +1,994 @@
+================================================================================
+SPLATIFY DISCOVERIES CATALOG
+================================================================================
+A comprehensive catalog of 25 Gaussian Splatting methods implemented in the
+gs_template framework, all based on published peer-reviewed or arxiv papers.
+
+This file is used by the ideator agent to understand what innovations exist,
+what worked, what didn't, and where new research opportunities lie.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+SECTION A: PUBLISHED PAPERS (25 methods from peer-reviewed/arxiv papers)
+  A1.  AbsGS                    — Densification via absolute gradients
+  A2.  BOGausS                  — Bayesian-informed optimizer + densification
+  A3.  Compact 3DGS             — Natural-selection pruning to budget
+  A4.  DecompGS                 — G2L densification + C2F training
+  A5.  Micro-Splatting           — Covariance regularization + merging
+  A6.  Depth-Regularized GS     — Monocular depth supervision
+  A7.  Feature 3DGS             — CLIP/DINO feature distillation
+  A8.  Opti3DGS                 — Coarse-to-fine frequency modulation
+  A9.  LightGaussian            — 15x compression pipeline
+  A10. StableGS                 — Dual opacity for floater removal
+  A11. VoD-3DGS                 — View-dependent opacity matrices
+  A12. RAIN-GS                  — SfM-free random initialization
+  A13. Trick-GS                 — Bag of efficiency tricks
+  A14. CLoD-GS                  — Continuous level-of-detail
+  A15. 2DGS                     — Planar Gaussian disks
+  A16. Pixel-GS                 — Pixel-aware gradient densification
+  A17. GaussianShader            — Shading + environment lighting
+  A18. Scaffold-GS              — Anchor-based neural Gaussians
+  A19. DWTGS                    — Wavelet frequency regularization
+  A20. LP-3DGS                  — Learnable Gumbel-Sigmoid pruning
+  A21. CompGS                   — Vector quantization compression
+  A22. CoR-GS                   — Dual-field co-regularization
+  A23. FSGS                     — Few-shot view synthesis
+  A24. MSAA-GS                  — Multi-sample anti-aliasing
+  A25. FDS-GS                   — Frequency-aware density control
+
+SECTION B: CROSS-CUTTING ANALYSIS
+  B1.  Innovation Taxonomy
+  B2.  Composability Map
+  B3.  Open Research Gaps
+  B4.  Lessons for the Ideator Agent
+
+================================================================================
+SECTION A: PUBLISHED PAPERS
+================================================================================
+
+--------------------------------------------------------------------------------
+A1. AbsGS — Recovering Fine Details for 3D Gaussian Splatting
+--------------------------------------------------------------------------------
+File:       gs_template/methods/absgs.py
+Paper:      "AbsGS: Recovering Fine Details for 3D Gaussian Splatting"
+Authors:    Zongxin Ye, Wenyu Li, Sidun Liu, Peng Qiao, Yong Dou
+ArXiv:      https://arxiv.org/abs/2404.10484
+Venue:      ACM Multimedia 2024
+Complexity: 1/5 (config-only change)
+
+NOVELTY:
+  Identifies "gradient collision" as root cause of over-reconstruction in 3DGS.
+  When opposing gradients from different views cancel out, large Gaussians in
+  problematic regions never get split. Uses absolute-value gradients (absgrad)
+  for densification instead of averaged gradients.
+
+CLAIM:
+  Recovers fine details missed by vanilla 3DGS densification. Better rendering
+  quality with reduced or comparable memory consumption.
+
+WHY IT EXISTS:
+  The simplest possible improvement — a single flag (absgrad=True) that gsplat
+  already supports. Demonstrates that even config-level changes can yield
+  meaningful quality gains. Used as a building block in many other methods.
+
+TECHNICAL DETAIL:
+  Standard 3DGS averages view-space positional gradients across views, causing
+  cancellation. AbsGS takes the absolute value before averaging, ensuring large
+  gradients from ANY view trigger splitting. No new parameters, no code changes.
+
+--------------------------------------------------------------------------------
+A2. BOGausS — Better Optimized Gaussian Splatting
+--------------------------------------------------------------------------------
+File:       gs_template/methods/bogauss.py
+Paper:      "BOGausS: Better Optimized Gaussian Splatting"
+Authors:    Stephane Pateux, Matthieu Gendrin, Luce Morin, Theo Ladune, et al.
+ArXiv:      https://arxiv.org/abs/2504.01844
+Venue:      EUSIPCO 2025
+Complexity: 4/5
+
+NOVELTY:
+  Systematically rethinks the 3DGS optimization pipeline through principled
+  Bayesian analysis. Four contributions:
+  1. Confidence estimation via Variational Bayesian Inference for minimal sizes
+  2. Unbiased Sparse Adam optimizer with precision-aware updates
+  3. Density-preserving splitting (child opacity/size match parent density)
+  4. Distortion-based densification with SNR prioritization + effective opacity pruning
+
+CLAIM:
+  Models up to 10x lighter than original 3DGS with no quality degradation.
+
+WHY IT EXISTS:
+  Addresses the ad-hoc nature of vanilla 3DGS optimization — replacing
+  heuristic split/clone/prune with principled rate-distortion optimization.
+
+TECHNICAL DETAIL:
+  - Effective opacity pruning: contribution/surface_area threshold (not just opacity)
+  - Density-preserving split: adjusts child sizes/opacities to maintain local density
+  - P_SNR scoring for split prioritization
+  - Densification every 500 iterations (vs 100 in vanilla)
+  - Keeps log-space scale parameterization and standard Adam optimizer base
+
+--------------------------------------------------------------------------------
+A3. Compact 3DGS — Gradient-Driven Natural Selection
+--------------------------------------------------------------------------------
+File:       gs_template/methods/compact_gs.py
+Paper:      "Gradient-Driven Natural Selection for Compact 3D Gaussian Splatting"
+Authors:    Xiaobin Deng, Qiuli Yu, Changyu Diao, Min Li, Duanqing Xu
+ArXiv:      https://arxiv.org/abs/2511.16980
+Venue:      arXiv 2025
+Complexity: 3/5
+
+NOVELTY:
+  Models Gaussian survival as natural selection: rendering gradients = fitness,
+  regularization gradients = environmental pressure. Fully learnable end-to-end
+  pruning without manual intervention or additional learnable parameters.
+
+CLAIM:
+  >0.6 dB PSNR gain over 3DGS with only 15% of Gaussians.
+
+WHY IT EXISTS:
+  Existing pruning methods use fixed thresholds or require manual tuning.
+  This method lets the optimization itself decide what survives.
+
+TECHNICAL DETAIL:
+  Three phases:
+  1. Standard densification (0-15K)
+  2. Natural selection (15K-23K): L_reg = (E[v] - T)^2 with T=-20 creates
+     global downward pressure on opacities. Rendering gradients keep useful
+     Gaussians alive; reg gradients kill weak ones.
+  3. Fine-tuning (23K-30K)
+  Uses soft pruning (zero opacity, keep optimizer state) then hard cleanup.
+  Finite opacity prior accelerates selection without hurting effectiveness.
+
+--------------------------------------------------------------------------------
+A4. DecompGS — Decomposing Densification for Faster Reconstruction
+--------------------------------------------------------------------------------
+File:       gs_template/methods/decomp_gs.py
+Paper:      "Decomposing Densification in Gaussian Splatting for Faster 3D Scene Reconstruction"
+Authors:    Binxiao Huang, Zhengwu Liu, Ngai Wong
+ArXiv:      https://arxiv.org/abs/2507.20239
+Venue:      arXiv 2025
+Complexity: 3/5
+
+NOVELTY:
+  Key insight: split operations handle GLOBAL spatial spread while clone
+  operations govern LOCAL refinement. Proposes Global-to-Local (G2L)
+  densification that sequences them appropriately.
+
+CLAIM:
+  ~2x training speedup with comparable or improved quality.
+
+WHY IT EXISTS:
+  Standard 3DGS runs split+clone simultaneously throughout training, which
+  is suboptimal. G2L phases them for better convergence.
+
+TECHNICAL DETAIL:
+  1. G2L densification: global phase (split-only for spatial diffusion) →
+     local phase (split+clone for detail refinement)
+  2. C2F multi-resolution: FFT-energy-guided schedule. T_r = (E_r/E_1)*T_densify
+  3. Adaptive opacity pruning: tau = min(alpha_sorted[floor(N*p)], tau_u)
+     replaces fixed 0.005 threshold with distribution-adaptive threshold
+
+--------------------------------------------------------------------------------
+A5. Micro-Splatting — Isotropy-Informed Covariance Regularization
+--------------------------------------------------------------------------------
+File:       gs_template/methods/micro_splatting.py
+Paper:      "Micro-splatting: Multistage Isotropy-informed Covariance Regularization"
+Authors:    Jee Won Lee, Hansol Lim, Sooyeun Yang, Jongseong Brad Choi
+ArXiv:      https://arxiv.org/abs/2504.05740
+Venue:      arXiv 2025
+Complexity: 3/5
+
+NOVELTY:
+  Two-stage pipeline: Stage I grows compact near-isotropic Gaussians with
+  trace-based covariance regularization; Stage II prunes low-impact splats
+  and merges redundant neighbors via spatial+feature thresholds.
+
+CLAIM:
+  Reduces splat count and model size by up to 60%, shortens training by 20%,
+  while matching or surpassing SOTA PSNR/SSIM/LPIPS.
+
+WHY IT EXISTS:
+  Highly anisotropic Gaussians act as low-pass filters, blur high-frequency
+  detail, and waste storage. Isotropy regularization fixes this.
+
+TECHNICAL DETAIL:
+  Stage I (Growth, 0→T_refine):
+  - Covariance trace regularization: sum of eigenvalues capped at trace_cap
+  - Isotropy loss: penalizes ratio of max/min eigenvalue
+  - L2 photometric loss additive to splatfacto's L1+SSIM
+  - Absgrad for gradient-guided splitting
+  Stage II (Micro-Refine, T_refine→end):
+  - Importance-score pruning (opacity * scale product)
+  - Pairwise merging: spatial < 0.01, color < 0.03, scale < 0.01
+  - Soft opacity zeroing preserves Adam momentum
+
+--------------------------------------------------------------------------------
+A6. Depth-Regularized GS — Monocular Depth Supervision
+--------------------------------------------------------------------------------
+File:       gs_template/methods/depth_reg.py
+Paper:      "Depth-Regularized Optimization for 3D Gaussian Splatting in Few-Shot Images"
+Authors:    Jaeyoung Chung, Jeongtaek Oh, Kyoung Mu Lee
+ArXiv:      https://arxiv.org/abs/2311.13398
+Venue:      CVPR 2024 Workshop (3DMV) — Best Paper Runner-up
+Complexity: 2/5
+
+NOVELTY:
+  Uses pretrained monocular depth estimators (Depth Anything V2, ZoeDepth,
+  MiDAS) as geometric priors to regularize 3DGS, especially in textureless
+  and ambiguous regions.
+
+CLAIM:
+  Enables high-quality 3DGS from very few input images by preventing
+  geometric overfitting.
+
+WHY IT EXISTS:
+  Vanilla 3DGS has no geometric prior — it can produce arbitrarily wrong
+  geometry while still minimizing photometric loss. Depth regularization
+  anchors the geometry.
+
+TECHNICAL DETAIL:
+  - Custom DataManager runs monocular depth estimation at startup, caches to disk
+  - Pearson correlation depth loss (scale-invariant) or L1 depth loss
+  - Optional opacity entropy regularization for floater removal
+  - Zero rendering/densification changes — purely additive loss
+  - Note: original paper uses L1 depth; implementation also supports Pearson
+
+--------------------------------------------------------------------------------
+A7. Feature 3DGS — Distilled Feature Fields
+--------------------------------------------------------------------------------
+File:       gs_template/methods/feature_gs.py
+Paper:      "Feature 3DGS: Supercharging 3D Gaussian Splatting to Enable Distilled Feature Fields"
+Authors:    Shijie Zhou, Haoran Chang, Sicheng Jiang, et al.
+ArXiv:      https://arxiv.org/abs/2312.03203
+Venue:      CVPR 2024 (Highlight)
+Complexity: 4/5
+
+NOVELTY:
+  Extends 3DGS to render arbitrary-dimensional semantic features alongside
+  RGB. Each Gaussian stores a latent feature vector; an MLP decodes rendered
+  features to match CLIP/DINO/SAM targets.
+
+CLAIM:
+  Enables novel-view semantic segmentation, language-guided editing, and
+  segment-anything capabilities on top of 3DGS.
+
+WHY IT EXISTS:
+  Standard 3DGS only renders RGB. This adds semantic understanding for
+  downstream tasks like open-vocabulary queries and scene editing.
+
+TECHNICAL DETAIL:
+  - Per-Gaussian feature dimension parameter (rasterized directly alongside RGB)
+  - MLP decode head: low-dim latent → high-dim CLIP/DINO features
+  - Single fused rasterization pass (RGB + features)
+  - Cosine feature distillation loss
+  - Replicates features during densification (split_gaussians)
+  - PCA visualization in viewer
+  - Demonstrates ALL 9 extension points of the gs_template
+
+--------------------------------------------------------------------------------
+A8. Opti3DGS — Coarse-to-Fine Frequency Modulation
+--------------------------------------------------------------------------------
+File:       gs_template/methods/opti3dgs.py
+Paper:      "Optimized 3D Gaussian Splatting using Coarse-to-Fine Image Frequency Modulation"
+Authors:    Umar Farooq, Jean-Yves Guillemaut, Adrian Hilton, Marco Volino
+ArXiv:      https://arxiv.org/abs/2503.14475
+Venue:      ACM SIGGRAPH CVMP 2025
+Complexity: 2/5
+
+NOVELTY:
+  Blurs ground-truth training images with progressively smaller Gaussian
+  filters during training. Forces model to learn coarse structure first,
+  then fine detail. Does NOT change renderer or densification.
+
+CLAIM:
+  62% fewer Gaussians, 40% less GPU memory, 20% faster training — no
+  quality loss. Highly modular, works with most 3DGS variants.
+
+WHY IT EXISTS:
+  Standard 3DGS creates unnecessary Gaussians early on to fit high-frequency
+  detail before the scene structure is established.
+
+TECHNICAL DETAIL:
+  - Mean blur filter with 5-level step-decay schedule
+  - Kernel sizes: 15→11→7→5→3→1 (original)
+  - Filtering stops after 12,000 iterations
+  - Only modifies GT images for loss computation — zero changes to model
+  - scaling_lr doubled to 0.01 (vs default 0.005)
+  - densify_grad_thresh lowered to 0.0001 (vs default 0.0002)
+  - Naturally produces level-of-detail representations as byproduct
+
+--------------------------------------------------------------------------------
+A9. LightGaussian — Unbounded 3D Gaussian Compression
+--------------------------------------------------------------------------------
+File:       gs_template/methods/light_gs.py
+Paper:      "LightGaussian: Unbounded 3D Gaussian Compression with 15x Reduction and 200+ FPS"
+Authors:    Zhiwen Fan, Kevin Wang, Kairun Wen, et al.
+ArXiv:      https://arxiv.org/abs/2311.17245
+Venue:      NeurIPS 2024 (Spotlight)
+Complexity: 4/5
+
+NOVELTY:
+  Multi-stage post-training compression: significance-based pruning →
+  SH distillation via pseudo-view knowledge transfer → VecTree quantization.
+
+CLAIM:
+  15x compression, rendering speed boost from 144 to 237 FPS.
+
+WHY IT EXISTS:
+  Vanilla 3DGS models are massive (hundreds of MB). This makes them
+  deployable on resource-constrained devices.
+
+TECHNICAL DETAIL:
+  Six training stages:
+  1. Normal training (0→30K)
+  2. Global significance pruning at step 30K (prune_ratio=0.5)
+  3. Co-adaptation recovery, no densification (30K→35K)
+  4. SH distillation with pseudo-views (35K→40K): target_sh_degree=2
+  5. Vector quantization of SH coefficients (40K): codebook_size=8192
+  6. VQ fine-tuning (40K→45K)
+  All transitions happen in after_train() to avoid breaking autograd.
+
+--------------------------------------------------------------------------------
+A10. StableGS — Floater-Free Framework
+--------------------------------------------------------------------------------
+File:       gs_template/methods/stablegs.py, stablegs_datamanager.py
+Paper:      "StableGS: A Floater-Free Framework for 3D Gaussian Splatting"
+Authors:    Luchao Wang, Qian Ren, Kaimin Liao, et al.
+ArXiv:      https://arxiv.org/abs/2503.18458
+Venue:      arXiv 2025
+Complexity: 4/5
+
+NOVELTY:
+  Identifies that floaters persist due to opacity gradient vanishing at a
+  pseudo-equilibrium. Proposes Dual Opacity: alpha for geometry (strong
+  depth losses), alpha' for appearance (color loss). Two separate rendering
+  paths decouple geometry optimization from appearance refinement.
+
+CLAIM:
+  Eliminates floaters while resolving the blur-artifact trade-off.
+
+WHY IT EXISTS:
+  Floaters are the #1 visual artifact in 3DGS. Previous methods either
+  suppress them at the cost of detail (blur) or don't suppress them enough.
+
+TECHNICAL DETAIL:
+  - Dual opacity: geometric path (strong depth constraints) vs appearance path
+  - DUSt3R depth prior loss + global scale optimization
+  - Multi-view self-supervised depth consistency loss
+  - Custom DataManager: COLMAP pair selection, DUSt3R depth estimation,
+    depth warping data preparation, caching system
+  - Pair selection based on co-visibility, rotation angle (16-60 deg),
+    homography inlier ratio
+
+--------------------------------------------------------------------------------
+A11. VoD-3DGS — View-Dependent Opacity
+--------------------------------------------------------------------------------
+File:       gs_template/methods/vod3dgs.py
+Paper:      "VoD-3DGS: View-opacity-Dependent 3D Gaussian Splatting"
+Authors:    Mateusz Nowak, Wojciech Jarosz, Peter Chin
+ArXiv:      https://arxiv.org/abs/2501.17978
+Venue:      arXiv 2025
+Complexity: 3/5
+
+NOVELTY:
+  Replaces scalar opacity with view-dependent opacity using a learnable
+  symmetric 3x3 matrix (SGGX microflake-inspired). Formula:
+  alpha_hat = sigmoid(gamma + w^T * S_hat * w)
+
+CLAIM:
+  SOTA real-time performance on specular/reflective scenes with minimal
+  memory overhead (+6 params per Gaussian) and negligible FPS drop.
+
+WHY IT EXISTS:
+  Scalar opacity cannot distinguish between scene objects and specular
+  reflections. View-dependent opacity lets Gaussians appear/disappear
+  based on viewing angle.
+
+TECHNICAL DETAIL:
+  - 6 new parameters per Gaussian: Sxx, Sxy, Sxz, Syy, Syz, Szz
+  - Two variants: [L] largest eigenvalue reset (higher quality),
+    [S] smallest eigenvalue reset (more compact)
+  - View-consistency regularization loss with optional keypoint weighting
+  - Quadratic form clamped to [-2, 2] to prevent sigmoid saturation
+  - lr(S_hat) = 1/4 * lr(opacity)
+
+--------------------------------------------------------------------------------
+A12. RAIN-GS — SfM-Free Initialization
+--------------------------------------------------------------------------------
+File:       gs_template/methods/rain_gs.py
+Paper:      "Relaxing Accurate Initialization Constraint for 3D Gaussian Splatting"
+Authors:    Jaewoo Jung, Jisang Han, Honggyu An, et al. (Korea University)
+ArXiv:      https://arxiv.org/abs/2403.09413
+Venue:      arXiv 2024
+Complexity: 3/5
+
+NOVELTY:
+  Demonstrates 3DGS trained from random point clouds can match or beat
+  SfM-initialized 3DGS, removing the SfM dependency entirely.
+
+CLAIM:
+  On-par or better than SfM-initialized 3DGS from just 10 random points.
+
+WHY IT EXISTS:
+  SfM is slow, brittle, and fails on many real-world captures. This
+  removes the bottleneck entirely.
+
+TECHNICAL DETAIL:
+  Three components addressing "limited Gaussian transportability":
+  1. SLV (Sparse-Large-Variance) init: 10 random points with large variance
+  2. Progressive low-pass filter: dynamic eps2d schedule for frequency control
+  3. ABE-Split (Adaptive Bound-Expanding Split): adds third Gaussian pushed
+     outward to expand spatial coverage during first 10K steps
+  Training: 40K iterations (10K warmup + 25K densification + 5K optimization)
+  Scale division ratio lowered from 1.6 to 1.4
+
+--------------------------------------------------------------------------------
+A13. Trick-GS — Balanced Bag of Tricks
+--------------------------------------------------------------------------------
+File:       gs_template/methods/trick_gs.py
+Paper:      "Trick-GS: A Balanced Bag of Tricks for Efficient Gaussian Splatting"
+Authors:    Anil Armagan, Albert Saa-Garriga, Bruno Manganelli, et al.
+ArXiv:      https://arxiv.org/abs/2501.14534
+Venue:      ICASSP 2025
+Complexity: 3/5
+
+NOVELTY:
+  Systematically evaluates which efficiency tricks interact positively
+  vs negatively, finding the optimal balanced configuration. Five tricks:
+  1. Learned Gaussian masks (straight-through estimator)
+  2. Per-Gaussian per-SH-band masking
+  3. Significance score pruning (ray-hit * opacity * volume)
+  4. Progressive training (blur + resolution + Gaussian scale schedule)
+  5. Post-training FP16 quantization
+
+CLAIM:
+  2x faster training, 40x smaller disk size, 2x faster rendering, with
+  comparable accuracy. Targets resource-constrained devices.
+
+WHY IT EXISTS:
+  Individual tricks are known; the contribution is finding which COMBINATIONS
+  work together (some interact negatively).
+
+TECHNICAL DETAIL:
+  - gaussian_mask: per-Gaussian binary mask, lr=0.5
+  - sh_masks: per-SH-band masks, lr=0.05
+  - Progressive resolution via splatfacto warmup mechanism
+  - Significance = product of ray hits, opacity, and volume
+  - Straight-through estimator for discrete mask optimization
+
+--------------------------------------------------------------------------------
+A14. CLoD-GS — Continuous Level-of-Detail
+--------------------------------------------------------------------------------
+File:       gs_template/methods/clod_gs.py
+Paper:      "CLoD-GS: Continuous Level-of-Detail via 3D Gaussian Splatting"
+Authors:    Zhigang Cheng, Mingchao Sun, Yu Liu, et al.
+ArXiv:      https://arxiv.org/abs/2510.09997
+Venue:      ICLR 2026 (poster)
+Complexity: 3/5
+
+NOVELTY:
+  Per-Gaussian learnable distance decay factor (sigma_d) for continuous
+  LoD from a single model. Eliminates discrete LoD copies and visual
+  "popping" artifacts.
+
+CLAIM:
+  Smooth quality-scalable rendering across all performance targets from
+  one model. ~1.6% memory overhead.
+
+WHY IT EXISTS:
+  Traditional discrete LoD requires multiple model copies and has visible
+  transitions. This learns a continuous LoD in a unified representation.
+
+TECHNICAL DETAIL:
+  - Per-Gaussian sigma_d parameter (learned, ~1.6% overhead)
+  - Opacity modulated by: alpha * exp(-d_norm^2 / (2*sigma_d^2))
+  - Virtual distance s_v randomly sampled during training
+  - Coarse-to-fine training: s_v schedule from far→near
+  - At inference: tune s_v for quality-performance trade-off
+  - lr(sigma_d) = 1e-2 (much higher than position lr)
+
+--------------------------------------------------------------------------------
+A15. 2DGS — 2D Gaussian Splatting
+--------------------------------------------------------------------------------
+File:       gs_template/methods/twodgs.py
+Paper:      "2D Gaussian Splatting for Geometrically Accurate Radiance Fields"
+Authors:    Binbin Huang, Zehao Yu, Anpei Chen, Andreas Geiger, Shenghua Gao
+ArXiv:      https://arxiv.org/abs/2403.17888
+Venue:      SIGGRAPH 2024
+Complexity: 3/5
+
+NOVELTY:
+  Replaces 3D Gaussian ellipsoids with 2D oriented planar disks. Enables
+  intrinsically view-consistent geometry through perspective-correct
+  ray-splat intersection.
+
+CLAIM:
+  Noise-free and detailed geometry reconstruction while maintaining
+  competitive appearance, fast training, and real-time rendering.
+
+WHY IT EXISTS:
+  3D Gaussians have ambiguous geometry — they can represent surfaces but
+  also volumetric clouds. 2D disks are inherently surface-like.
+
+TECHNICAL DETAIL:
+  - One scale axis driven toward zero → flat disk degeneration
+  - Depth distortion loss: concentrates blending weights at single depth
+  - Normal consistency loss: aligns per-Gaussian normals with rendered
+    depth gradient normals at median intersection point (opacity=0.5)
+  - Uses gsplat 2DGS backend for perspective-correct rasterization
+  - Extracts surface normals from Gaussian quaternions
+
+--------------------------------------------------------------------------------
+A16. Pixel-GS — Pixel-Aware Gradient Density Control
+--------------------------------------------------------------------------------
+File:       gs_template/methods/pixel_gs.py
+Paper:      "Pixel-GS: Density Control with Pixel-aware Gradient for 3D Gaussian Splatting"
+Authors:    Zheng Zhang, Wenbo Hu, Yixing Lao, Tong He, Hengshuang Zhao
+ArXiv:      https://arxiv.org/abs/2403.15530
+Venue:      ECCV 2024
+Complexity: 2/5
+
+NOVELTY:
+  Weights densification gradients by the number of pixels each Gaussian
+  covers per view. Large Gaussians covering many pixels get properly
+  weighted, preventing blurring and needle-like artifacts.
+
+CLAIM:
+  Proper growth of large Gaussians in sparse areas. Prevents floater
+  growth near camera via depth-based gradient scaling.
+
+WHY IT EXISTS:
+  Standard 3DGS averages gradients across views without considering pixel
+  coverage, causing under-densification in sparsely initialized regions.
+
+TECHNICAL DETAIL:
+  1. Pixel-aware gradient: weight gradient contribution by covered pixel count
+  2. Scaled gradient field: depth-dependent scaling in NDC space
+  3. Scene radius computed from camera centers (not Gaussian positions)
+  - No new parameters, only changes to gradient accumulation logic
+
+--------------------------------------------------------------------------------
+A17. GaussianShader — Reflective Gaussian Splatting
+--------------------------------------------------------------------------------
+File:       gs_template/methods/gaussian_shader.py
+Paper:      "GaussianShader: 3D Gaussian Splatting with Shading Functions for Reflective Surfaces"
+Authors:    Yingwenqi Jiang, Jiadong Tu, Yuan Liu, et al.
+ArXiv:      https://arxiv.org/abs/2311.17977
+Venue:      CVPR 2024
+Complexity: 5/5 (most complex method)
+
+NOVELTY:
+  Adds per-Gaussian shading attributes (diffuse, specular, roughness,
+  normal deltas) with trainable cubemap environment lighting. Decomposes
+  appearance into diffuse + direct specular + residual SH.
+
+CLAIM:
+  +1.57 dB PSNR over vanilla 3DGS on specular datasets, 40x faster than
+  Ref-NeRF optimization.
+
+WHY IT EXISTS:
+  Standard SH-based color cannot properly represent specular highlights
+  and environment reflections.
+
+TECHNICAL DETAIL:
+  - New params: diffuse_color, specular_tint, roughness (3 values),
+    normal_delta (2x3 values), trainable cubemap environment map
+  - Renders RGB + normal + expected depth in one pass
+  - Normal consistency and opacity sparsity losses
+  - Residual SH color introduced later in training schedule
+  - SH degree 3, requires depth during training
+
+--------------------------------------------------------------------------------
+A18. Scaffold-GS — Anchor-Based Neural Gaussians
+--------------------------------------------------------------------------------
+File:       gs_template/methods/scaffold_gs.py
+Paper:      "Scaffold-GS: Structured 3D Gaussians for View-Adaptive Rendering"
+Authors:    Tao Lu, Mulin Yu, Linning Xu, et al.
+ArXiv:      https://arxiv.org/abs/2312.00109
+Venue:      CVPR 2024 (Highlight)
+Complexity: 5/5
+
+NOVELTY:
+  Complete architectural redesign: anchor points distribute local "neural
+  Gaussians" whose attributes are predicted on-the-fly by MLPs conditioned
+  on viewing direction and distance.
+
+CLAIM:
+  View-adaptive representation that eliminates per-view redundancy.
+
+WHY IT EXISTS:
+  Vanilla 3DGS stores fixed attributes per Gaussian. Scaffold-GS makes
+  attributes view-dependent via neural prediction, reducing redundancy.
+
+TECHNICAL DETAIL:
+  - Anchor-based: stores anchors (voxelized SfM points), not raw Gaussians
+  - MLPs decode k neural Gaussians per visible anchor: opacity, color,
+    rotation, scale from anchor features + viewing conditions
+  - Multi-resolution feature bank for level-of-detail
+  - Anchor growing/pruning replaces split/clone densification
+  - Volume regularization instead of scale regularization
+  - 5 MLPs: feature_bank, opacity, color, quat, scale
+
+--------------------------------------------------------------------------------
+A19. DWTGS — Wavelet Frequency Regularization
+--------------------------------------------------------------------------------
+File:       gs_template/methods/dwtgs.py
+Paper:      "DWTGS: Rethinking Frequency Regularization for Sparse-view 3D Gaussian Splatting"
+Authors:    Hung Nguyen, Runfa Li, An Le, Truong Nguyen
+ArXiv:      https://arxiv.org/abs/2507.15690
+Venue:      VCIP 2025
+Complexity: 2/5
+
+NOVELTY:
+  Shows Fourier-based frequency regularization provides negligible benefit
+  for sparse-view 3DGS. Wavelet-space (Haar DWT) losses yield +0.3-0.4 dB
+  PSNR via spatially localized frequency supervision.
+
+CLAIM:
+  +0.3-0.4 dB PSNR for sparse-view scenarios. Wavelets > Fourier for 3DGS.
+
+WHY IT EXISTS:
+  Fourier transforms lose spatial information. Wavelets provide BOTH
+  frequency AND spatial localization, critical for sparse-view settings.
+
+TECHNICAL DETAIL:
+  - Multi-level Haar DWT decomposition (N=2 levels)
+  - LF supervision: L1 loss on LL subbands at each level (lambda=0.5)
+  - HF regularization: self-supervised sparsity on HH subbands via
+    novel-view renders (every 10 iters, stopped after 5K iters, lambda=0.1)
+  - No new Gaussian parameters, no rendering changes
+  - Purely additive loss-side contribution
+
+--------------------------------------------------------------------------------
+A20. LP-3DGS — Learning to Prune
+--------------------------------------------------------------------------------
+File:       gs_template/methods/lp3dgs.py
+Paper:      "LP-3DGS: Learning to Prune 3D Gaussian Splatting"
+Authors:    Zhaoliang Zhang, Tianchen Song, Yongjae Lee, et al.
+ArXiv:      https://arxiv.org/abs/2405.18784
+Venue:      NeurIPS 2024
+Complexity: 3/5
+
+NOVELTY:
+  Learns a differentiable binary mask per Gaussian using Gumbel-Sigmoid
+  reparameterization. Automatically discovers the optimal pruning ratio
+  per scene — no hand-tuned thresholds or trial-and-error.
+
+CLAIM:
+  Eliminates need for manually preset pruning ratios. Fully differentiable
+  and compatible with standard 3DGS training pipeline.
+
+WHY IT EXISTS:
+  All prior pruning methods require choosing a threshold or ratio. This
+  lets the optimization decide.
+
+TECHNICAL DETAIL:
+  Three phases:
+  1. Standard 3DGS (0-19500)
+  2. Mask learning with Gumbel-Sigmoid, tau=0.5 (19500-20000, 500 iters)
+  3. Hard mask applied, fine-tune (20000-30000)
+  Importance scores: "radsplat" (alpha*T), "minisplatting" (sum of color
+  weights), or "opacity"
+  Soft pruning: zero opacity, don't physically remove (preserve optimizer)
+  mask_reg_weight=5e-4 for sparsity
+
+--------------------------------------------------------------------------------
+A21. CompGS — Vector Quantization Compression
+--------------------------------------------------------------------------------
+File:       gs_template/methods/compgs.py
+Paper:      "CompGS: Smaller and Faster Gaussian Splatting with Vector Quantization"
+Authors:    KL Navaneet, Kossar Pourahmadi Meibodi, et al.
+ArXiv:      https://arxiv.org/abs/2311.18159
+Venue:      ECCV 2024
+Complexity: 3/5
+
+NOVELTY:
+  Vector-quantizes Gaussian parameters DURING training (not post-hoc)
+  using K-means with Straight-Through Estimator (STE) gradients.
+
+CLAIM:
+  40-50x storage reduction, 2-3x rendering speedup with minimal quality loss.
+
+WHY IT EXISTS:
+  Post-hoc compression loses quality. Training-time VQ lets the model
+  adapt to the codebook constraints.
+
+TECHNICAL DETAIL:
+  Three phases:
+  1. Standard training (0-15K)
+  2. Opacity L1 regularization (15K-20K): drives invisible Gaussians to zero
+  3. VQ-aware training (20K-30K): quantization with STE gradients
+  Four independent codebooks:
+  - Color DC: K=4096
+  - Color SH: K=4096
+  - Covariance scales: K=16384
+  - Covariance rotations: K=16384
+  Positions and opacity remain unquantized.
+
+--------------------------------------------------------------------------------
+A22. CoR-GS — Sparse-View Co-Regularization
+--------------------------------------------------------------------------------
+File:       gs_template/methods/cor_gs.py
+Paper:      "CoR-GS: Sparse-View 3D Gaussian Splatting via Co-Regularization"
+Authors:    Jiawei Zhang, Jiahe Li, Xiaohan Yu, et al.
+ArXiv:      https://arxiv.org/abs/2405.12110
+Venue:      ECCV 2024
+Complexity: 5/5
+
+NOVELTY:
+  Key insight: two independent 3DGS fields trained on the same sparse views
+  produce disagreements that serve as UNSUPERVISED indicators of reconstruction
+  errors. No external priors needed.
+
+CLAIM:
+  Self-correction via field disagreement, without external depth/normal priors.
+
+WHY IT EXISTS:
+  Sparse-view 3DGS needs regularization, but external priors (depth, normals)
+  add complexity and potential errors. Co-regularization is self-supervised.
+
+TECHNICAL DETAIL:
+  - Dual-field: Field 1 (splatfacto-managed, kept for inference),
+    Field 2 (manual rendering via nn.ParameterDict, discarded)
+  - Co-pruning: KNN-based non-matching detection (tau=5.0),
+    every 5th refine step, starting at step 500
+  - Pseudo-view co-regularization: sample novel cameras near training views,
+    minimize L1 + D-SSIM between two field renders (lambda_p=1.0)
+  - Field 2 has independent densification (grad_thresh=0.0002)
+  - Default: 10K iters for LLFF/DTU, 30K for Mip-NeRF360
+
+--------------------------------------------------------------------------------
+A23. FSGS — Few-Shot View Synthesis
+--------------------------------------------------------------------------------
+File:       gs_template/methods/fsgs.py
+Paper:      "FSGS: Real-Time Few-shot View Synthesis using Gaussian Splatting"
+Authors:    Zehao Zhu, Zhiwen Fan, Yifan Jiang, Zhangyang Wang
+ArXiv:      https://arxiv.org/abs/2312.00451
+Venue:      ECCV 2024
+Complexity: 3/5
+
+NOVELTY:
+  Three contributions for few-shot (3-24 views):
+  1. Proximity-guided Gaussian Unpooling: densifies sparse regions via
+     midpoints between isolated Gaussians and K nearest neighbors
+  2. Pseudo-view synthesis: virtual viewpoints between closest training cameras
+  3. Depth regularization: Pearson correlation on real + pseudo views
+
+CLAIM:
+  Photo-realistic novel view synthesis from 3 training views with 200+ FPS.
+
+WHY IT EXISTS:
+  Standard 3DGS densification fails when SfM initialization is extremely
+  sparse. Unpooling fills the spatial gaps.
+
+TECHNICAL DETAIL:
+  - Custom DataManager: monocular depth preprocessing
+  - Proximity unpooling: K=3, threshold=10.0, every 100 iters from step 500
+  - Pseudo-view: starts at iter 2000, noise_std=0.01
+  - SH degree progressive: 0→4 every 500 iters
+  - Opacity reset at {2000, 5000, 7000} to reset_value=0.05
+  - 10K total iterations (not 30K)
+
+--------------------------------------------------------------------------------
+A24. MSAA-GS — Multi-Sample Anti-Aliasing
+--------------------------------------------------------------------------------
+File:       gs_template/methods/msaa_gs.py, msaa_gs_enhanced.py
+Paper:      "Multi-Sample Anti-Aliasing and Constrained Optimization for 3D Gaussian Splatting"
+Authors:    Zheng Zhou, Jia-Chen Zhang, Yu-Jie Xiong, Chun-Ming Xia
+ArXiv:      https://arxiv.org/abs/2508.10507
+Venue:      arXiv 2025
+Complexity: 3/5
+
+NOVELTY:
+  Three components:
+  1. MSAA: 4x subpixel multi-sample anti-aliasing during rasterization
+  2. AWS: Adaptive Weighting Strategy — error-adaptive per-pixel L1 loss
+  3. GDC: Gradient Difference Constraints for edge/boundary fidelity
+
+CLAIM:
+  Improved SSIM and LPIPS while maintaining real-time rendering.
+
+WHY IT EXISTS:
+  Standard 3DGS has aliasing artifacts, especially at object boundaries
+  and in fine-detail regions.
+
+TECHNICAL DETAIL:
+  - MSAA: renders same camera at N subpixel offsets (shifted K matrices),
+    averages results. Camera optimizer applied once, base params gathered once.
+  - AWS: per-pixel weight = alpha * |error|^alpha (focuses on hard pixels)
+  - GDC: L1(grad(render) - grad(GT)) for edge fidelity
+  - Enhanced variant (msaa_gs_enhanced.py) stacks 6 additional improvements:
+    depth reg, bilateral grid, opacity entropy, scale reg, antialiased mode,
+    60K training. Expected +2-3 dB over vanilla.
+
+--------------------------------------------------------------------------------
+A25. FDS-GS — Frequency-Aware Density Control
+--------------------------------------------------------------------------------
+File:       (base paper, AAAI 2025)
+Paper:      "Frequency-Aware Density Control via Reparameterization for High-Quality Rendering of 3D Gaussian Splatting"
+Authors:    Zhaojie Zeng, Yuesong Wang, Lili Ju, Tao Guan
+ArXiv:      https://arxiv.org/abs/2503.07000
+Venue:      AAAI 2025
+Complexity: 3/5
+
+NOVELTY:
+  Establishes direct relation between density and scale through
+  reparameterization of scaling parameters, ensuring density responds
+  to frequency content.
+
+CLAIM:
+  Better quality with fewer Gaussians (SSIM 0.835, PSNR 27.95 on MipNeRF360).
+
+WHY IT EXISTS:
+  3DGS lacks an explicit constraint linking density and scale. High-frequency
+  regions should have dense small Gaussians; low-frequency regions should
+  have sparse large ones.
+
+TECHNICAL DETAIL:
+  1. Density-scale coupling: decomposes scale into absolute scalar + relative
+     scale vector, linking density to frequency content
+  2. Dynamic percentile threshold: sorts gradients, adaptively adjusts
+     densification threshold based on distribution (not fixed)
+  3. Scale-based filter: deletes Gaussians with improper scale
+
+
+================================================================================
+SECTION B: CROSS-CUTTING ANALYSIS
+================================================================================
+
+--------------------------------------------------------------------------------
+B1. Innovation Taxonomy
+--------------------------------------------------------------------------------
+
+Every method in this catalog falls into one or more of these innovation categories:
+
+DENSIFICATION INNOVATIONS (how/when to add Gaussians):
+  - AbsGS: absolute gradient criterion
+  - Pixel-GS: pixel-count-weighted gradients
+  - RAIN-GS: ABE-Split for bound expansion from random init
+  - DecompGS: G2L (global split-only → local split+clone)
+  - FSGS: proximity-guided unpooling for sparse regions
+  - FDS-GS: dynamic percentile threshold
+  - Scaffold-GS: anchor growing/pruning
+
+PRUNING/COMPRESSION INNOVATIONS (how to reduce Gaussians):
+  - Compact 3DGS: natural-selection gradient competition
+  - LP-3DGS: learnable Gumbel-Sigmoid masks
+  - LightGaussian: significance pruning + SH distillation + VQ
+  - CompGS: training-time vector quantization with STE
+  - Trick-GS: learned masks + significance scoring + SH band masking
+  - Micro-Splatting: importance-score pruning + pairwise merging
+  - Opti3DGS: fewer Gaussians via coarse-to-fine GT blurring
+  - BOGausS: effective opacity pruning (contribution/area)
+
+LOSS/SUPERVISION INNOVATIONS (what to optimize):
+  - Depth-Reg GS: monocular depth supervision
+  - DWTGS: wavelet frequency regularization
+  - MSAA-GS: adaptive weighting + gradient difference
+  - 2DGS: depth distortion + normal consistency
+  - CoR-GS: pseudo-view co-regularization
+  - FDS-GS: DWT + gradient-diff + density-scale coupling
+
+REPRESENTATION INNOVATIONS (what a Gaussian stores/means):
+  - 2DGS: 2D planar disks instead of 3D ellipsoids
+  - Scaffold-GS: anchor + neural Gaussian architecture
+  - VoD-3DGS: view-dependent opacity matrix
+  - GaussianShader: diffuse/specular/roughness/normals + cubemap
+  - Feature 3DGS: per-Gaussian semantic features + MLP decoder
+  - CLoD-GS: per-Gaussian distance decay for continuous LoD
+
+INITIALIZATION INNOVATIONS (where Gaussians start):
+  - RAIN-GS: random/sparse initialization (no SfM needed)
+  - FSGS: proximity-guided initial placement
+
+DOMAIN-SPECIFIC INNOVATIONS (specialized physics/rendering):
+  - GaussianShader: reflective surfaces
+  - StableGS: floater elimination
+
+TRAINING SCHEDULE INNOVATIONS (when/how optimization changes):
+  - Opti3DGS: coarse-to-fine GT frequency schedule
+  - DecompGS: FFT-energy-guided resolution schedule
+
+--------------------------------------------------------------------------------
+B2. Composability Map — How Published Methods Can Be Combined
+--------------------------------------------------------------------------------
+
+Key composable technique families (methods whose innovations stack well):
+
+DENSITY + LOSS:     FDS-GS(density-scale) + DWTGS(wavelet) + MSAA-GS(grad-diff)
+DEPTH + GEOMETRY:   Depth-Reg(depth) + 2DGS(normals) + Pixel-GS(pixel-aware grad)
+COMPRESSION:        Compact-3DGS(pruning) + CompGS(VQ) + LightGaussian(distillation)
+SPARSE-VIEW:        CoR-GS(dual-field) + FSGS(unpooling) + DWTGS(freq-reg)
+QUALITY:            AbsGS(absgrad) + MSAA-GS(anti-alias) + Micro-Splatting(cov-reg)
+REPRESENTATION:     Scaffold-GS(anchors) + VoD-3DGS(view-dep) + GaussianShader(shading)
+
+KEY PATTERN: The most successful combinations use 2-3 published techniques
+with 1-2 genuinely novel ideas. Pure combinations without novel elements
+tend to underperform original papers.
+
+--------------------------------------------------------------------------------
+B3. Open Research Gaps (Opportunities for the Ideator Agent)
+--------------------------------------------------------------------------------
+
+Based on analyzing all 25 methods, these gaps remain unaddressed:
+
+GAP 1: ADAPTIVE DENSIFICATION + LOSS CO-DESIGN
+  No method jointly optimizes WHEN to densify and WHAT loss to use.
+  FDS-GS comes closest but treats them independently.
+  Opportunity: loss-aware densification (densify where loss is highest,
+  using loss gradients to guide split decisions).
+
+GAP 2: CROSS-SCENE TRANSFER LEARNING
+  Every method trains from scratch. No method transfers knowledge
+  (optimal hyperparameters, density patterns, loss schedules) across scenes.
+  Opportunity: meta-learning for 3DGS hyperparameters.
+
+GAP 3: SELF-SUPERVISED QUALITY ESTIMATION
+  CoR-GS uses dual-field disagreement, but no method has a general-purpose
+  per-pixel quality estimator that guides optimization.
+  Opportunity: learned quality predictor that replaces GT during training.
+
+GAP 4: UNIFIED COMPRESSION-QUALITY FRAMEWORK
+  Compact-3DGS, LP-3DGS, CompGS, LightGaussian each solve compression
+  differently. No method provides a single knob for quality-size trade-off.
+  Opportunity: combine CLoD-GS's continuous LoD with CompGS's VQ for
+  continuous compression.
+
+GAP 5: PHYSICS-INFORMED GENERAL SCENES
+  GaussianShader handles reflective surfaces but no method applies
+  physics-informed rendering to general scenes (lighting, shadows,
+  material estimation).
+  Opportunity: extend GaussianShader with learned physics priors.
+
+GAP 6: DYNAMIC SCENES
+  All 25 methods target static scenes. None addresses temporal consistency,
+  motion estimation, or dynamic Gaussian management.
+  Opportunity: extend any of these to 4DGS/dynamic settings.
+
+GAP 7: ROBUST DEPTH SUPERVISION
+  No method handles fundamentally wrong monocular depth (systematic bias,
+  scale drift). Confidence-weighting depth priors is an open problem.
+  Opportunity: self-calibrating depth that detects and corrects estimator failures.
+
+GAP 8: FREQUENCY-DOMAIN DENSIFICATION
+  DWTGS uses wavelets for LOSSES, but no method uses frequency analysis
+  to guide WHERE to densify.
+  Opportunity: densify in image regions with high-frequency residuals.
+
+GAP 9: EFFICIENT MULTI-VIEW CONSISTENCY
+  Full multi-view consistency (like NeRF's volumetric rendering) remains
+  unexplored for 3DGS. Sampling hard views for consistency is promising.
+  Opportunity: lightweight multi-view consistency without rendering all views.
+
+--------------------------------------------------------------------------------
+B4. Lessons for the Ideator Agent
+--------------------------------------------------------------------------------
+
+WHAT WORKS:
+1. COMBINE 2-3 published ideas with 1-2 novel elements (not more)
+2. Additive losses are safest — they don't break existing training
+3. Scheduling matters: curriculum, warmup, phase transitions > static weights
+4. Share computation across techniques (e.g. reuse DWT cache for pruning)
+5. Soft pruning preserves optimizer state — always preferred over hard deletion
+6. Confidence-weighting external priors >> blind trust
+7. Config-level changes (AbsGS: absgrad=True) can be surprisingly powerful
+8. The "gentle nudge" regime (lambda < 0.01) works better than strong priors
+9. Linear warmup prevents early-training instability from new losses
+10. Per-Gaussian parameters are cheap (~1.6% overhead per scalar)
+11. Methods that only add losses (no rendering changes) are most composable
+12. Custom DataManagers unlock domain-specific preprocessing
+13. The best methods address a specific FAILURE MODE, not general "improvement"
+
+ANTI-PATTERNS (what doesn't work):
+14. Too many losses at once without scheduling → training instability
+15. Strong depth supervision throughout training → blurs fine detail
+16. Hard pruning during active densification → thrashes optimizer
+17. Post-hoc compression (vs training-time VQ) → quality loss
+18. Fixed thresholds across scenes → suboptimal per-scene behavior
+19. Ignoring optimizer state during parameter surgery → convergence issues
+
+================================================================================
+END OF DISCOVERIES CATALOG
+================================================================================

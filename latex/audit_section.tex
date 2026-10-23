@@ -1,0 +1,131 @@
+% =========================================================================
+%  audit_section.tex — drop-in section listing every manuscript produced
+%  by the autonomous lab. Requires: longtable, booktabs, amssymb (for the
+%  audit-verdict glyphs).  Compile with: \input{audit_section.tex}.
+% =========================================================================
+
+\section{Cross-Run Audit: All 16 Manuscripts}
+\label{sec:audit}
+
+Table~\ref{tab:audit} catalogues every paper produced by the autonomous
+lab during the study window.  One row per run; one run is one
+independent dispatch of the \texttt{/research} master orchestrator on a
+fresh ledger and a fresh workspace.  The columns track the target
+method (when one was specified at run-start), the evaluation dataset
+and scene set, the prompt regime, the method name the pipeline
+ultimately committed to in its \texttt{paper/main.pdf}, the locally
+reproduced baseline, the final headline result on whichever metric the
+run measured, the delta vs.\ that baseline, the number of trained
+experiment branches recorded in the ledger, the compute spent in GPU
+hours, and an audit verdict on the manuscript's honesty.
+
+\paragraph{Audit verdicts.}  We classify each manuscript as one of:
+(\textbf{\checkmark}) verified -- a clean positive $\Delta$ above the
+measured noise floor, with reviewer round-2 returning weak-accept or
+better and the paper-quality-checker reporting zero remaining critical
+hallucinations;
+($\circ$) honest-marginal -- the run delivered a $\Delta$ within the
+noise floor and the manuscript reframes the contribution accordingly
+(LPIPS-Pareto, scene-conditional gain, or a systematic-evaluation
+framing) rather than over-claiming PSNR;
+($\square$) workshop-style -- the contribution is a benchmark, an
+editing pipeline, a calibration channel, or a different-metric task,
+where PSNR is not the primary axis;
+($\times$) failed -- the run terminated without a positive result on
+its own self-stated target.  Verdicts are read directly from the
+ledger (\texttt{best.classification}, \texttt{revision\_done}
+\texttt{remaining\_critical}, and round-2 \texttt{review\_received}
+events) -- nothing in this table is rephrased after the fact.
+
+\paragraph{Prompt regime legend.}
+\textsf{free} = open-ended creative prompt (``design a novel
+3DGS\ldots'');
+\textsf{target} = a specific paper / GitHub repository URL was provided
+at run-start as the SOTA to beat;
+\textsf{scene} = a custom dataset directory was provided (Nebula,
+Bubble, etc.) with the request to beat splatfacto on it;
+\textsf{workshop} = a workshop-style brief, often without a single
+PSNR target.
+
+\paragraph{Metric notation.}
+PSNR is reported in dB unless flagged: $\dagger$~3D view-consistency
+IoU; $\ddagger$~instruction-success / edit-locality rate;
+$\S$~negative log-likelihood (calibration);
+$\P$~AUROC@$25$ (auto-annotation gate). ``--'' means the run produced
+no headline number against a single baseline (typically benchmark
+papers).
+
+% -------------------------------------------------------------------------
+\renewcommand{\arraystretch}{1.18}
+\begin{table*}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.0pt}
+\caption{All sixteen manuscripts produced by the autonomous lab.  Each
+row is the headline result the run committed to in its
+\texttt{paper/main.pdf}.  $N$ = experiment branches recorded in the
+ledger.  GPU-h = approximate compute (wall hours $\times$ active
+workers).  See \S\ref{sec:audit} for column conventions and audit
+verdicts.}
+\label{tab:audit}
+\begin{tabular}{@{}c l p{1.55cm} p{2.05cm} c p{1.85cm} r r r r r c@{}}
+\toprule
+\# & Run id & Target / SOTA & Dataset / scenes & Prompt & Method (ours) &
+   Base & Final & $\Delta$ & $N$ & GPU-h & Audit \\
+\midrule
+
+1  & 04-18 & splatfacto-50s          & Mip-NeRF 360 / 7~sc.\ @ 50\,s & free   & View-Curriculum-GS              & 20.53                & 23.36                & $+2.83$              & 9   & 14  & \checkmark \\
+2  & 04-19a & vanilla 3DGS            & Mip-NeRF 360 / 5~sc.\ @ 30k    & free   & Improving-ADC                   & 27.40                & 27.30                & $-0.10$              & 10  & 22  & $\circ$    \\
+3  & 04-19b & FastGS~\citep{ren2026fastgs}        & Mip-NeRF 360 / 9~sc.\ @ 7k     & target & FreezeGS                        & 25.65                & 26.08                & $+0.43$              & 22  & 22  & \checkmark \\
+4  & 04-21 & GaussianWrapping        & Mip-NeRF 360 / 6~sc.\ @ 30k    & target & CSNVF-NRSH                      & 27.46                & 27.46                & $\,0.00$             & 10  & 24  & $\circ$    \\
+5  & 04-23 & vanilla 3DGS + NeuS     & Mip-NeRF 360 / 7~sc.\ @ 30k    & free   & ISE-Splat-Hybrid                & 27.45                & 26.66                & $-0.79$              & 14  & 24  & $\circ$    \\
+6  & 04-24a & FastGS~\citep{ren2026fastgs}        & Mip-NeRF 360 / 7~sc.\ @ 30k    & free   & TileFocalGS                     & 29.12                & 29.69                & $+0.53$              & 38  & 36  & \checkmark \\
+7  & 04-24b & LERF / LangSplat / F-3DGS & 6~sc.\ language queries        & workshop & LEGS-Bench (benchmark)        & --                   & --                   & --                   & 0   & 4   & $\square$  \\
+8  & 04-24c & LangSplat / LERF        & Mip-NeRF 360 / 6~sc.\ lang.\   & scene  & LOO-TTA + ConsensusLoss         & 0.039$^{\dagger}$    & 0.074$^{\dagger}$    & $+0.035^{\dagger}$   & 2   & 6   & $\square$  \\
+9  & 04-26 & Scaffold-GS             & Mip-NeRF 360 / 7~sc.\ edit     & workshop & SceneGraphGS                  & 0.700$^{\ddagger}$   & 0.757$^{\ddagger}$   & $+0.057^{\ddagger}$  & 0   & 4   & $\square$  \\
+10 & 04-27 & 3DGS-MCMC               & Mip-NeRF 360 / 9~sc.\ @ 30k    & target & LockEtaLangevin                 & 27.628               & 27.647               & $+0.019$             & 3   & 18  & $\times$   \\
+11 & 04-30 & splatfacto              & Mip-NeRF 360 / 5~sc.\ pose-free & workshop & BayesPose                     & 30.16                & 30.26                & $+0.105$             & 4   & 24  & $\circ$    \\
+12 & 05-01 & splatfacto / MCMC~\citep{kheradmand2024mcmc} & Nebula / 1~sc.\ 1080p          & scene  & Nebula3DGS-v2                   & 33.44                & 36.36                & $+2.92$              & 47  & 28  & \checkmark \\
+13 & 05-02a & splatfacto / MCMC~\citep{kheradmand2024mcmc} & Bubble / 1~sc.\ 1080p          & scene  & BubbleGS                        & 27.40                & 30.11                & $+2.71$              & 24  & 26  & \checkmark \\
+14 & 05-02b & PixelSplat / MVSplat / VGGT & Mip-NeRF 360 / 7~sc.\ calib    & workshop & AttDis (bicycle-calib)        & 5.05$^{\S}$          & 0.238$^{\S}$         & $-4.81$~ord.$^{\S}$  & 3   & 4   & $\square$  \\
+15 & 05-03a & PixelSplat / MVSplat    & RE10K + ACID                   & workshop & AuditSplat-MLP                  & 0.861$^{\P}$         & 0.909$^{\P}$         & $+0.048^{\P}$        & 0   & 2   & $\square$  \\
+16 & 05-03b & vanilla 3DGS / DN-Splatter & Mip-NeRF 360 / 6~sc.\ @ 30k    & workshop & VisibilityGS-only               & 30.13                & 30.41                & $+0.28$              & 12  & 24  & $\circ$    \\
+
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{What the table shows.}  Of the sixteen manuscripts:
+four (\#1, \#3, \#6, \#12, \#13) are clean verified
+positives where our generated method beats its locally-reproduced
+baseline by at least the measured noise floor on the headline metric,
+and round-2 reviewers returned weak-accept or better;
+five (\#2, \#4, \#5, \#11, \#16) are honest-marginal --
+the run executed cleanly but its own measurements showed the
+$\Delta$ landed within the noise floor, and the manuscript
+reframes the contribution as a systematic-evaluation, scene-conditional
+gain, or LPIPS-Pareto improvement rather than a PSNR win;
+six (\#7, \#8, \#9, \#14, \#15) are workshop-style submissions whose
+contribution is a benchmark, calibration channel, or editing pipeline,
+where PSNR is not the primary axis; and one (\#10) is a frank failure
+recorded in the ledger.  The audit column is read mechanically from
+the ledger, not edited after the fact.
+
+\paragraph{Observations.}
+(i)~Runs that were prompted with a custom dataset (\textsf{scene}
+prompts, rows \#12, \#13) have the largest deltas; both deliberately
+attack a previously-untrained scene class where vanilla splatfacto is
+known to be weak.
+(ii)~Runs targeting a specific recent paper (\textsf{target} prompts,
+rows \#3, \#4, \#10) split between one verified beat (FreezeGS, \#3,
+$+0.43$\,dB on FastGS), one honest-mixed (CSNVF-NRSH, \#4), and one
+acknowledged failure (LockEtaLangevin, \#10) -- consistent with the
+literature observation that the recent-SOTA paper graveyard leaves
+little headroom.
+(iii)~Runs with the highest $N$ (\#12 with 47 trained branches, \#6
+with 38) tend to commit cleaner manuscripts with stronger ablations,
+suggesting branch-density correlates with audit verdict.
+
+% =========================================================================
+%  end of audit_section.tex
+% =========================================================================

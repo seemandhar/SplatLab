@@ -1,0 +1,74 @@
+# ════════════════════════════════════════════════════════════════════
+#  SplatLab .gitignore
+#  This working tree contains ~900 GB of datasets, run outputs, and
+#  third-party clones. Only the CODE is tracked. Everything heavy or
+#  machine-local is excluded. (Commits also add specific paths only.)
+# ════════════════════════════════════════════════════════════════════
+
+# ── Per-run outputs & experiment data (workspace alone is ~900 GB) ──
+/workspace/
+/experiments/
+/training_outputs/
+/outputs/
+/rendering/
+/exp_*/
+/baselines/
+/baselines_registry.json
+
+# ── Datasets & large corpora ──
+/data/
+/literature/
+literature/pdfs/
+
+# ── Third-party clones (have their own repos) ──
+/SegFormer/
+/pandaset-devkit/
+
+# ── Generated marketing / paper artifacts ──
+/demo.html
+/demo-assets/
+/fullpaper/
+/fullpaper-short/
+/firstpages/
+*.pdf
+
+# ── Logs & config backups ──
+*.log
+config.yaml.bak_*
+
+# ── Local Claude Code overrides ──
+.claude/settings.local.json
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# ── LaTeX build artifacts ──
+*.aux
+*.bbl
+*.blg
+*.out
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.toc
+*.dvi
+
+# ── Node ──
+node_modules/
+
+# ── OS / editor ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── Secrets ──
+.env
+.env.local
+.anthropic_key

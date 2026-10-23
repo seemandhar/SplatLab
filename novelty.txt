@@ -1,0 +1,1160 @@
+================================================================================
+NOVELTY & KEY IDEAS — GS Research Autopilot
+================================================================================
+Reference document for the paper's methodology section.
+Organized as: (1) high-level contributions, (2) per-component techniques
+with prior-work context and the exact terminology used in the code, so
+citations map 1:1 to implementation files.
+
+All paths are relative to the splatlab/ root.
+
+================================================================================
+1. HIGH-LEVEL CONTRIBUTIONS (paper-headline claims)
+================================================================================
+
+C1. First end-to-end autonomous 3DGS research pipeline that unifies
+    (a) whole-codebase evolutionary search, (b) cross-pair verbal
+    learning, (c) adversarial falsification as a fitness signal, and
+    (d) an outer re-ideation feedback loop, under a single master
+    orchestrator.
+
+C2. A domain-specific mapping from AlphaEvolve's generic EVOLVE-BLOCK
+    idea to the 9 canonical extension hooks of a 3D Gaussian Splatting
+    model — turning every hook into an independently evolvable code
+    region with guaranteed isolation between mutations.
+
+C3. A hybrid evolutionary algorithm that combines EoH (Evolution of
+    Heuristics) rationale–implementation pairs with ReEvo-style verbal
+    gradients and all-pairs Elo ranking. No prior work combines all
+    three; each contributes a distinct missing signal.
+
+C4. A dedicated falsification subagent that actively tries to break
+    each generated method via three complementary attacks (edge
+    scene, sparse-view, hparam-ablation). To our knowledge, this is
+    the first pipeline where robustness failures are penalized
+    *inside* the optimization loop rather than reported post-hoc.
+
+C5. Production-grade observability and resumability: every event
+    (candidate spawn, GPU acquisition, PSNR, falsification result,
+    verbal gradient, re-ideation) is durably journaled to a per-job
+    JSONL log so an interrupted run can be resumed from disk state
+    and a closed browser tab can be reopened with full history.
+
+================================================================================
+2. EVOLVE-BLOCK — per-hook diff-scoped evolution
+================================================================================
+
+File: splatify/evolve_blocks.py
+
+Technique. We inject comment-based markers
+
+    # EVOLVE-BLOCK-START <hook_name>
+    def <hook_name>(self, ...):
+        ...body...
+    # EVOLVE-BLOCK-END <hook_name>
+
+around each of the 9 canonical extension points of the shared GS
+template (splatify/gs_template/model.py):
+
+    1. populate_modules
+    2. get_outputs                   (rendering)
+    3. get_loss_dict
+    4. compute_custom_losses
+    5. split_gaussians               (densification)
+    6. get_gaussian_param_groups
+    7. get_param_groups
+    8. get_outputs_for_camera
+    9. get_metrics_dict
+
+A mutation operator receives a strict protocol in its prompt
+(`guarded_diff_prompt`) stating that it may ONLY rewrite the body
+between the markers of a named subset of hooks, and nothing else in
+the file. The annotator is idempotent, so re-running on a partially
+annotated file is a no-op.
+
+Why it matters. FunSearch mutates individual functions. AlphaEvolve
+generalizes to arbitrary marked regions but leaves placement of the
+markers to the user. Our contribution is the domain-specific mapping
+that aligns the marker set 1:1 with the 9 extension hooks of a
+modular 3DGS framework, so every mutation has a semantically clean
+scope and any hook can be evolved without clobbering any other.
+
+Relation to prior work.
+  - FunSearch (Romera-Paredes et al. 2024): function-level evolution.
+  - AlphaEvolve (DeepMind 2024): whole-codebase evolution via generic
+    EVOLVE-BLOCK markers, no domain-specific scaffold.
+  - Ours: 9 hook-aligned blocks for 3DGS.
+
+================================================================================
+3. EoH — (rationale, implementation) pairs + 5 mutation operators
+================================================================================
+
+File: splatify/eoh.py
+
+Technique. Every candidate in our pool is an RIPair:
+
+    RIPair(key, rationale, impl_path, elo, psnr, operator_used,
+           parents, hooks_touched)
+
+The rationale is a ≤25-word natural-language statement the mutator
+agent emits alongside the code. It captures *why* the change was
+made and becomes input to downstream operators (parents of a future
+crossover see each other's rationales, not just their code).
+
+Five EoH operators, prompt-specialized:
+
+    E1  Crossover             — conservative mix of ≥2 parents
+    E2  Exploratory crossover — aggressive mix + one novel twist
+    M1  Refine                — small single-parent edit
+    M2  Parameter tweak       — numeric constants only
+    M3  Structural rewrite    — control-flow-level single-parent edit
+
+Operator selection is ε-greedy (ε=0.25) over per-operator running
+average Elo gain (OperatorScheduler). The first slot of every
+generation is forced to M1 to guarantee a conservative anchor.
+Parent selection:
+  - Arity-1 operators (M1/M2/M3) use softmax-over-Elo with τ=200.
+  - Arity-2 operators (E1/E2) pick one softmax-weighted parent PLUS
+    one uniformly random parent — forced diversity injection to
+    prevent the top pair from dominating every crossover.
+
+Why it matters. EoH (Liu et al. 2024) showed that carrying a textual
+rationale alongside code reduces LLM queries by orders of magnitude
+vs FunSearch, because the mutator no longer re-derives the "why" each
+call. We adopt this directly and extend it with per-operator credit
+assignment via Elo delta — an idea EoH does not use.
+
+Relation to prior work.
+  - EoH (Liu et al. 2024): 5 operators, rationale pairs, no Elo.
+  - FunSearch: code-only, no rationale, uniform sampling.
+  - Ours: EoH operators + Elo-delta credit assignment + Elo-softmax
+    parent selection with diversity guard.
+
+================================================================================
+4. Elo ranking + ReEvo-style verbal gradients
+================================================================================
+
+File: splatify/elo_gradients.py
+
+Technique.
+
+(a) Elo ladder. Instead of `max(candidates, key=psnr)`, every
+generation runs all-pairs matches: for each alive candidate pair
+within the generation, the higher-PSNR one wins and receives a
+rating update
+
+    delta = K * scale * (1 - E_winner)
+    scale = clamp(0.75 + margin_db * 0.25, 0.5, 1.5)
+
+with K=32 and expected score from the standard Elo formula
+    E_w = 1 / (1 + 10^((r_l - r_w)/400))
+
+The margin scaling means a 2 dB blowout moves ratings more than a
+0.1 dB photo finish, but never more than 1.5× K. Ratings are keyed
+by `{cycle}_{gen}_{island}` so they persist across generations AND
+across re-ideation cycles. State is written to
+`workspace/elo/state.json` on every update.
+
+(b) Verbal gradients. After Elo updates, we identify "surprising"
+pairs — pairs where the loser's pre-match rating was within
+SURPRISE_WINDOW=60 Elo of the winner's. These are the upsets, not
+the blowouts. For up to 4 surprising pairs per generation, we spawn
+a small Sonnet agent (`run_verbal_gradient_agent`) that receives:
+
+    - Both candidates' EVOLVE-BLOCK diffs (only hooks that differ)
+    - Their PSNR delta
+    - Their rationales
+    - Per-hook context labels
+
+and returns a 2–3 sentence explanation of *why* the winner beat the
+loser. The agent must end its response with a JSON tail:
+
+    {"hooks": ["get_loss_dict", ...], "lesson": "..."}
+
+which we parse and append to `workspace/elo/lessons.jsonl`. On the
+next generation, `build_lessons_digest` groups all accumulated
+lessons by hook and injects them into the mutator prompt for any
+operator that touches that hook.
+
+Why it matters. AI Co-Scientist (Google 2024) uses Elo on reasoning
+traces, not compiled runs. ReEvo (Ye et al. 2024) adds verbal
+gradients but applies them to every pair, which is expensive. We
+combine:
+
+  - Grounded Elo: the ratings come from real PSNR measurements on a
+    cached baseline-Δ-gated scene, not model-reported scores.
+  - Cheap gradients: restricted to ≤4 surprising-loss pairs per
+    generation (upset-flavored), not all O(n²).
+  - Per-hook accumulation: the lessons are grouped by EVOLVE-BLOCK
+    hook, so a mutator operating on `get_loss_dict` sees only
+    lessons relevant to loss design.
+
+Relation to prior work.
+  - AI Co-Scientist: Elo on reasoning, no falsification, no compiled
+    evaluation.
+  - ReEvo (Ye et al. 2024): verbal gradients on every pair; no Elo.
+  - Ours: Elo + verbal gradients + per-hook targeting + restricted
+    to surprising pairs.
+
+================================================================================
+5. Falsification subagent — adversarial robustness as fitness
+================================================================================
+
+File: splatify/falsify.py
+
+Technique. Every candidate that clears the cheap single-scene cascade
+(S3 garden at 7k iters, ≥ baseline - 1.0 dB) is subjected to three
+adversarial attacks BEFORE being allowed to contribute to the Elo
+ladder's next round of selection. All three share the candidate's
+currently-held GPU slot.
+
+Attack A1 — Edge scene.
+  Train the candidate on a harder scene (flowers, 3000 iters), which
+  has a low splatfacto baseline (~21.5 dB) and commonly breaks
+  methods that overfit to dense-structure scenes like garden. PASS
+  iff psnr >= flowers_baseline - 2.0 dB.
+
+Attack A2 — Sparse-view robustness.
+  Re-run S3 on the single-scene benchmark (garden) with
+  `--num-training-views 3`, forcing the candidate to train under
+  underconstrained geometry. PASS iff garden_full - psnr_sparse <=
+  sparse_delta + 2.0 dB.
+
+Attack A3 — Hparam ablation (the "is your contribution real" test).
+  Regex-extract the first numeric hyperparameter named in the
+  candidate's rationale (e.g. "gamma=0.35", "loss_weight: 0.1"), zero
+  it in-place (with .falsify-bak backup for restoration), and re-run
+  S3. PASS iff
+    garden_full - psnr_ablated >= 0.3 dB   (the hparam matters)
+  If zeroing the hparam makes training crash, that is *also* a PASS —
+  crashing means the hparam is load-bearing, which is exactly what we
+  want to verify. This semantics is intentional and matters: a method
+  whose claimed contribution is a no-op should be penalized harder
+  than a method that genuinely falls over under the attack.
+
+Scoring.
+    score = w_garden * garden_psnr
+            - 1.5 * (edge_scene_failed)
+            - 1.0 * (sparse_views_failed)
+            - 2.0 * (ablation_failed)
+
+The ablation penalty is largest because over-claiming is the worst
+failure mode for a research method.
+
+Elo coupling. Each failed attack subtracts 30 Elo from the
+candidate's ladder rating. This means robustness isn't merely
+reported — it directly determines who gets selected as a parent for
+the next generation's operators. A method that wins garden by 0.8 dB
+but fails A3 loses its rank to one that won by 0.4 dB and survived
+all three attacks.
+
+Why it matters. No existing end-to-end research pipeline (AI
+Co-Scientist, AutoML, FunSearch, EoH, AlphaEvolve) runs an explicit
+adversarial pass on its generated methods. Reported results are
+taken at face value. We make falsification a fitness signal: a
+candidate's Elo rating is literally decreased by failing attacks, so
+the evolutionary search cannot drift into brittle solutions.
+
+Relation to prior work.
+  - Red-teaming for LLM outputs (Perez et al. 2022): adversarial
+    prompt generation, but on text outputs, not compiled methods.
+  - Ablation studies in ML papers: done post-hoc, not in the loop.
+  - Ours: 3 automated attacks inside the optimization loop, with
+    failures penalizing Elo, and hparam-ablation-crash correctly
+    interpreted as "load-bearing → pass".
+
+================================================================================
+6. AlphaEvolve-style evaluation cascade (cost control)
+================================================================================
+
+File: splatify/cascade.py
+
+Technique. A four-stage cascade that progressively filters candidates
+from seconds to hours of compute:
+
+    S1  Compile/import check     (~5s,    no GPU)
+    S2  100-iter smoke train     (~30-60s, 1 GPU)
+    S3  Single-scene short eval  (~5-10m,  1 GPU)
+    S4  Full benchmark           (hours,   1 GPU per candidate,
+                                             scenes sequential)
+
+Gating between stages:
+  - S1 → S2: must import cleanly
+  - S2 → S3: must complete 100 iters with finite loss (no NaN)
+  - S3 → S4: psnr >= splatfacto_baseline(scene, s3_iters) - 1.0 dB,
+             where the baseline is cached per (scene, stage) to
+             disk and re-used across all candidates.
+  - S4 is only run on the single champion of the entire evolution,
+    never per-generation.
+
+Parallelism.
+  - GPUPool (splatify/cascade.py): one candidate holds one GPU for
+    the entirety of its cascade run. Multiple candidates run
+    concurrently on different GPUs.
+  - Generation-synchronous: all N candidates clear stage K before
+    any starts K+1.
+  - S4's scenes run sequentially on the champion's single GPU, not
+    fanned out — simpler and matches the one-candidate-one-GPU
+    invariant.
+
+Why it matters. Running 24 candidates (3 generations × 8) × full
+mipnerf360 (9 scenes × 30k iters) would be roughly 648 full training
+jobs per evolutionary run, ~150+ GPU-days. With our cascade, 23 of
+24 candidates stop at S3 (single scene, 7k iters ≈ 5-10 min each),
+and only the champion pays the S4 cost. This is what makes
+evolutionary 3DGS search cost-feasible.
+
+Relation to prior work.
+  - AlphaEvolve: introduced the cascade idea for general program
+    synthesis.
+  - Ours: domain-specific cascade for 3DGS with baseline-Δ gating
+    and cached splatfacto baselines per (scene, stage).
+
+================================================================================
+7. Outer re-ideation feedback loop
+================================================================================
+
+File: splatify/evolution.py, splatify/b_agents.py (run_negative_ideator_agent)
+
+Technique. The evolution pipeline is wrapped in an outer loop:
+
+    for cycle in 0 .. max_re_ideations:
+        run 3 generations of EoH + Elo + falsify
+        if best_psnr >= baseline_psnr:
+            return success
+        if cycle < max_re_ideations:
+            impl_path = negative_ideator(prior_result)
+            continue
+
+The negative ideator is a fresh Opus agent that reads:
+
+    - Every candidate's rationale from the failed cycle
+    - Their PSNRs
+    - The global best PSNR vs baseline
+    - The baseline method's structure
+
+and is explicitly told to produce a new seed implementation that is
+structurally different from the failed directions — not merely a
+refinement. Its output is a directory path, which we re-annotate
+with EVOLVE-BLOCK markers and pass into a fresh evolutionary cycle.
+The EloState and OperatorScheduler persist across cycles so the
+bandit doesn't forget what it learned.
+
+Default cap: max_re_ideations = 2 (so ≤3 cycles total).
+
+Why it matters. Every other evolutionary pipeline assumes the seed
+is good enough; if it isn't, the search just plateaus below baseline
+and the run is wasted. We detect plateau via baseline comparison and
+respawn at a higher level of abstraction (re-ideation) rather than
+throwing more mutations at a doomed seed.
+
+Relation to prior work.
+  - FunSearch / AlphaEvolve / EoH: single seed, single cycle.
+  - Classic genetic programming with island migration: migrates
+    individuals between subpopulations; doesn't resample the seed.
+  - Ours: full re-seeding with a negative-example-aware ideator
+    agent, capped to bound cost.
+
+================================================================================
+8. Resumable durable state + observability
+================================================================================
+
+Files:
+  splatify/job_store.py     — EventSink, rehydration, sidecars
+  splatify/evolution.py     — EvolutionContext.load_or_new / save
+
+Technique. Every pipeline event — phase start, agent thinking, tool
+call, training iteration, PSNR measurement, Elo update, verbal
+gradient, falsification attack, re-ideation — is written to a
+per-job JSONL log:
+
+    workspace/<run_id>/events.jsonl
+
+Each line is enriched with a monotonic `seq`, a UTC `ts`, and the
+event payload. On browser reconnect (even after closing the tab and
+reopening hours later), the SSE endpoint replays every event with
+`seq > last_seen`, then switches to live tailing — the UI state is
+fully reconstructable from the log.
+
+Algorithmic state that persists across generations and Flask
+restarts is written to individual JSON files:
+
+    workspace/<run_id>/elo/state.json       — Elo ratings + history
+    workspace/<run_id>/elo/lessons.jsonl    — verbal gradient corpus
+    workspace/<run_id>/eoh/state.json       — operator bandit stats
+    workspace/<run_id>/eoh/ri_pairs.jsonl   — top-24 rationale/impl pool
+    workspace/<run_id>/falsify/<cid>.json   — per-candidate reports
+    workspace/<run_id>/baselines/*.json     — cached splatfacto PSNRs
+    workspace/<run_id>/job.json             — sidecar for rehydration
+
+On Flask startup, `rehydrate_jobs` scans `workspace/` for sidecar
+files, rebuilds the in-memory jobs dict, and marks any job whose PID
+is gone as `"orphaned"` (log still replayable, producer thread dead).
+
+Why it matters. Most research pipelines lose all state on interrupt
+and require re-running from scratch. Ours survives SSH drops (runs
+inside tmux), browser closures (JSONL replay), and Flask restarts
+(sidecar rehydration). For a 24-candidate × 3-generation evolution
+that takes hours, this is the difference between "resume the job" and
+"start over and burn another GPU-day".
+
+================================================================================
+9. Mixed-model routing (cost/quality optimization)
+================================================================================
+
+File: config.py (MODELS, _OPUS_TASKS, resolve_model)
+
+Technique. Three user-selectable presets determine which Claude
+model runs each subagent:
+
+    optimized  — Opus for heavy tasks (ideation, planning, coding,
+                 method writing, reviewing, paper revision), Sonnet
+                 for everything else. This is the default and the
+                 cost-optimal setting for a full paper run.
+    all_opus   — Every subagent runs on Opus. Best quality, ~5-10×
+                 cost of optimized.
+    all_sonnet — Every subagent runs on Sonnet. Fast, cheap, used
+                 for pipeline development and smoke testing.
+
+The routing is driven by `config.resolve_model(task_type)`, which
+the agent factory (`agents/definitions.py`) calls for every one of
+the ~33 subagents. Adding a new agent is a one-line change —
+define its task type in `_OPUS_TASKS` or not, and it inherits the
+preset automatically.
+
+Why it matters. A full paper run invokes the master orchestrator
+plus ~33 subagents, possibly dozens of times. Hard-coding Opus for
+everything is 5-10× the cost of the optimized preset at negligible
+quality difference for the Sonnet-suitable tasks (formatting, file
+ops, summarization, tool dispatch). The preset abstraction lets us
+quantify the cost/quality trade-off per run.
+
+================================================================================
+10. Master-orchestrator dynamic subagent invocation
+================================================================================
+
+Files: pipeline.py, prompts/master_orchestrator.py, agents/definitions.py
+
+Technique. Instead of a fixed DAG, a single Opus master agent with
+the Agent tool decides at runtime which of ~33 subagents to invoke,
+in what order, with what parallelism, and how many times. The
+pipeline prompt gives it the full subagent catalog and a high-level
+workflow template (research → baselines → ideation → implementation
+→ training → ablation → figures → writing → quality → review →
+revision), but the master is free to iterate, retry, spawn parallel
+subagents, or skip stages based on intermediate results.
+
+Subagents include: researcher, baseline_extractor, ideator, parser,
+planner, coder, code_reviewer, validator, integrator, tester,
+debugger, trainer, baseline_runner, visual_comparator,
+experiment_reviewer, ablation_runner, failure_case_analyzer,
+figure_generator, teaser_writer, bookend_writer, introduction_writer,
+related_work_writer, method_writer, experiments_writer,
+latex_assembler, paper_quality_checker, eic_reviewer,
+methodology_reviewer, domain_reviewer, devils_advocate,
+editorial_synthesizer, revision_agent.
+
+Plus sub-project B adds:
+    verbal_gradient_agent       (Sonnet, run_verbal_gradient_agent)
+    negative_ideator_agent      (Opus, run_negative_ideator_agent)
+
+Why it matters. Fixed-DAG pipelines cannot react to partial results
+(e.g. retrying only the failed section, re-running ablation when
+debug reveals a bug). A dynamic orchestrator can. The trade-off is
+that the master agent itself consumes turns — we cap it at 300 turns
+per run, which has been sufficient for full paper generation in our
+internal testing.
+
+================================================================================
+11. Tick-based persistent master orchestrator (autoresearch)
+================================================================================
+
+Files:
+  autoresearch/supervisor.py
+  autoresearch/ledger.py
+  autoresearch/prompts/tick_master.py
+
+Technique. The default master orchestrator (pipeline.py) runs as a
+single Opus session capped at 300 turns. For research runs that span
+24-48 hours of compute, this lifecycle has three failure modes:
+
+  (1) context exhaustion — even at 1M tokens, hundreds of subagent
+      result blocks force compaction that destroys nuance about
+      *why* an idea was rejected;
+  (2) no crash recovery — an SSH drop or OOM kills the session and
+      every decision-relevant fact disappears;
+  (3) no explicit budget enforcement — wall-clock and token spend
+      drift unbounded.
+
+Our autoresearch subsystem replaces the master's lifecycle with a
+**tick scheduler**. Each tick is a bounded Opus session (~40 turns)
+that:
+
+    1. Reads workspace/<run>/ledger.json (durable state)
+    2. Reads workspace/<run>/gpu_state.json (nvidia-smi snapshot,
+       refreshed by a 30s daemon)
+    3. Reads the tail of events.jsonl
+    4. Decides which subagents to spawn with what arguments
+    5. Writes its decisions to ledger.ticks[*].decisions
+    6. Exits
+
+Subagents launched by a tick run **asynchronously** in worker
+threads. Their results land back in the ledger via a small
+ledger-writer helper, never in the next tick's prompt context. The
+next tick re-reads the ledger from scratch and decides afresh. The
+master is therefore **stateless across ticks** — context never
+accumulates, and the supervisor can be SIGKILL'd and resumed at
+any tick boundary with zero loss of decision history.
+
+Why it matters. Every long-horizon agentic system we've seen either
+(a) uses a single long-lived session and dies when the context
+fills, or (b) uses a fixed cron-based loop with no shared state. We
+combine the two: the tick scheduler is cron-like, but the ledger
+gives every tick the full memory of every prior tick. The result is
+an Opus master that can run for 48 hours with bounded context,
+recover from any crash, and obey explicit wall-clock + token
+budgets.
+
+Relation to prior work.
+  - AutoGPT / BabyAGI: long-running agentic loops with
+    in-memory task lists; lose state on crash.
+  - LangChain agents: single-session, no resumability.
+  - AI Co-Scientist: tournament-based, but each tournament is a
+    bounded session — no concept of multi-day persistence.
+  - Ours: tick-based + durable ledger + explicit budget caps,
+    designed for 24-48h autonomous operation.
+
+================================================================================
+12. Cross-codebase EVOLVE-BLOCK auto-mapping
+================================================================================
+
+Files:
+  agents/definitions.py (evolve_block_mapper agent)
+  splatify/evolve_blocks.py (existing 9-hook annotator, reused)
+
+Technique. The original EVOLVE-BLOCK contribution (§2) is tied to
+the splatify gs_template's 9 canonical extension hooks. That works
+when our method is built on top of splatify, but the moment we
+clone the SOTA paper's *own* git repository (e.g. Mip-Splatting,
+Scaffold-GS, 2DGS, GES) the hooks don't exist — those repos use
+arbitrary file layouts.
+
+We add an `evolve_block_mapper` Opus subagent that reads any
+cloned 3DGS repository and, via combined AST analysis + LLM
+reasoning, identifies the analogue of each of the 9 splatify hooks:
+
+    splatify hook              ↔  what the mapper looks for
+    --------------------------    ---------------------------------
+    populate_modules           ↔  __init__ of the model class
+    get_outputs (rendering)    ↔  forward pass / render function
+    get_loss_dict              ↔  loss assembly site
+    compute_custom_losses      ↔  any auxiliary loss function
+    split_gaussians            ↔  densification routine
+    get_gaussian_param_groups  ↔  parameter group construction
+    get_param_groups           ↔  optimizer parameter groups
+    get_outputs_for_camera     ↔  per-view rendering entry
+    get_metrics_dict           ↔  validation metric computation
+
+For each hit, the mapper injects EVOLVE-BLOCK markers around the
+identified region in-place. It reports
+`{hooks_found, confidence, mapping}` to the master.
+
+The master then makes a track decision:
+  - hooks_found ≥ 5  →  Track A: every existing piece of EoH /
+                        Elo / verbal-gradients / cascade / falsify
+                        machinery applies to the foreign repo
+                        unchanged.
+  - hooks_found < 5  →  Track B: fall back to `freeform_mutator`,
+                        which emits unified diffs against arbitrary
+                        files using the same rationale-pair and Elo
+                        machinery — but without per-hook lesson
+                        grouping.
+
+Why it matters. Domain-specific evolutionary search has historically
+required hand-annotated extension points (FunSearch's `solve`,
+AlphaEvolve's manual EVOLVE-BLOCK markers, our own 9 splatify
+hooks). The mapper generalizes this annotation step to any
+3DGS-shaped codebase, so the entire investment in our evolutionary
+infrastructure transfers to *every* SOTA repo without per-repo human
+work. The Track-A/Track-B fallback means the system degrades
+gracefully when a foreign repo's structure is too irregular to map
+cleanly.
+
+Relation to prior work.
+  - FunSearch / AlphaEvolve: hand-placed extension markers.
+  - Code-LLM refactoring tools (CodeT5, etc.): rename / restructure,
+    not hook annotation for evolutionary search.
+  - Ours: domain-aware (3DGS) auto-annotator with explicit
+    fallback semantics.
+
+================================================================================
+13. PDF-extracted free baselines via mineru
+================================================================================
+
+Files:
+  agents/definitions.py (pdf_harvester agent)
+
+Technique. To beat a SOTA paper we need that paper's reported
+numbers AND comparison numbers for every other method in its
+results table. The naive approach is to clone and reproduce every
+method individually — which costs days of GPU per baseline.
+
+Instead, the `pdf_harvester` subagent runs
+
+    conda run -n mineru mineru -p <paper.pdf> -o <out_dir>
+
+and parses the resulting markdown to extract every results table.
+Each row in those tables is a method × scene PSNR/SSIM/LPIPS
+triple, which we deserialize into
+
+    ledger.target.reported_metrics[scene][metric]
+
+for the SOTA itself, and into
+
+    ledger.target.peer_baselines[method][scene][metric]
+
+for every other method in the same table. The peer baselines come
+**for free** from the harvest — no reproduction needed. We only
+ever spend compute reproducing the *target* method (so we have an
+exact internal baseline to beat) and our own variants.
+
+Why it matters. Cuts baseline reproduction cost from O(N_methods)
+GPU-weeks to O(1). The reproduced target gives us the trustworthy
+internal anchor; the harvested peer baselines give us the
+publication-ready comparison row in the experiments table without
+ever running them.
+
+Relation to prior work.
+  - PaperQA / SciSpace: paper Q&A over LLM-extracted text, but
+    not structured table extraction for downstream optimization.
+  - mineru itself: a PDF→MD converter — we add the structured
+    metric extraction layer on top.
+  - Ours: turn the SOTA paper into a free baseline corpus that
+    feeds directly into the optimization stop condition.
+
+================================================================================
+14. Verification-gated paper writing
+================================================================================
+
+Files:
+  agents/definitions.py (paper_verifier agent)
+  autoresearch/supervisor.py (open_issues handling)
+
+Technique. Once the autoresearch loop produces a paper draft, a
+`paper_verifier` subagent is spawned that:
+
+    1. Reads the final paper.tex (or the section drafts)
+    2. Reads ledger.json (every measurement we ever took)
+    3. For every numerical claim ("we achieve 28.5 dB on garden",
+       "+0.5 dB over Mip-Splatting", "ablation removes 1.2 dB"),
+       searches the ledger for a backing entry
+    4. Mismatches are written as
+         ledger.paper.open_issues = [
+           {claim, severity, ledger_evidence: None}, ...
+         ]
+
+The supervisor's stop condition includes `paper.open_issues == []`,
+so the run cannot terminate as "successful" while any unverified
+claim remains. On the next tick the master sees the open issues
+and decides among:
+
+  - spawn additional experiments that would actually back the claim
+  - spawn `revision_agent` to delete or weaken the claim
+  - spawn `negative_ideator` if the claim suggests a structural
+    failure mode worth re-ideating around
+
+Why it matters. Hallucinated or over-claimed numbers are the most
+common failure mode of LLM-written ML papers (and a major reason
+human peer review still exists). By making "every claim is ledger-
+backed" a hard precondition for stopping, the system literally
+cannot ship a paper that says something it didn't measure.
+
+Relation to prior work.
+  - AI Scientist (Sakana 2024): post-hoc reviewer agent, but the
+    reviewer's findings are advisory — the paper still ships.
+  - Result Integrity Checklist (in our own RESULT_INTEGRITY rules):
+    a static prompt-level rule, not a runtime gate.
+  - Ours: claims are mechanically grounded in the ledger and
+    grounding is a stop-condition precondition, not a guideline.
+
+================================================================================
+APPENDIX: Citation targets (prior work the paper should cite)
+================================================================================
+
+FunSearch        Romera-Paredes et al., "Mathematical discoveries from
+                 program search with large language models", Nature 2024.
+
+AlphaEvolve      DeepMind, "AlphaEvolve: A coding agent for scientific
+                 and algorithmic discovery", arXiv 2024.
+
+EoH              Liu et al., "Evolution of Heuristics: Towards
+                 Efficient Automatic Algorithm Design Using Large
+                 Language Models", ICML 2024.
+
+ReEvo            Ye et al., "ReEvo: Large Language Models as
+                 Hyper-Heuristics with Reflective Evolution",
+                 NeurIPS 2024.
+
+AI Co-Scientist  Google, "Towards an AI co-scientist", Nature 2024.
+
+3DGS baseline    Kerbl et al., "3D Gaussian Splatting for Real-Time
+                 Radiance Field Rendering", SIGGRAPH 2023.
+
+Splatfacto       Tancik et al., nerfstudio's reference GS method.
+
+Mip-NeRF 360     Barron et al., CVPR 2022.
+
+================================================================================
+FILE-TO-CONTRIBUTION INDEX
+================================================================================
+
+The paper's methodology section can be written directly off this table.
+
+Contribution                       | Code file
+-----------------------------------+---------------------------------------------
+C2  EVOLVE-BLOCK mapping           | splatify/evolve_blocks.py
+C3  EoH operators + scheduling     | splatify/eoh.py
+C3  Elo ratings                    | splatify/elo_gradients.py (EloState)
+C3  Verbal gradients               | splatify/elo_gradients.py (VerbalGradient)
+                                   | splatify/b_agents.py (run_verbal_gradient_agent)
+C4  Falsification subagent         | splatify/falsify.py
+§6  Evaluation cascade             | splatify/cascade.py
+§7  Re-ideation feedback loop      | splatify/evolution.py (run_evolution_pipeline)
+                                   | splatify/b_agents.py (run_negative_ideator_agent)
+§8  Durable JSONL event log        | splatify/job_store.py
+§8  EvolutionContext persistence   | splatify/evolution.py (EvolutionContext)
+§9  Mixed-model routing            | config.py (resolve_model)
+§10 Master orchestrator            | pipeline.py, prompts/master_orchestrator.py
+§10 33 subagent definitions        | agents/definitions.py
+--- UI / infrastructure ---
+Jobs rehydration                   | web.py (_rehydrate_on_startup)
+SSE replay with ?since=seq         | web.py (_sse_stream), templates/*.html
+
+================================================================================
+11. ROBUSTNESS & BUDGET-DISCIPLINE UPGRADES (2026-04-14)
+================================================================================
+The following novelties were added after a 9.6 h run in workspace
+20260413_220446_068e0193 exposed: a crash-on-next-tick prompt builder,
+paper written against a stale hypothesis, Sonnet routing for writers,
+thin bib, and 27 shallow experiments. Each item below is a concrete
+mechanism that prevents a specific failure mode observed in that run.
+
+U1. Tick-loop hardening against malformed ledger entries.
+    The master prompt builder (_format_experiments, _format_gpu_state,
+    _format_ideas) now uses .get() everywhere instead of bracket
+    access, and build_master_prompt is wrapped in try/except inside
+    the tick loop so a single bad entry can no longer kill the
+    pipeline mid-run. Prior behavior: a missing exp_id field raised
+    KeyError at tick_0003, aborting the run immediately after the
+    master had declared victory in tick_0002.
+    Files: prompts/master_orchestrator.py, pipeline.py
+
+U2. Terminal-status stop condition + final paper tick.
+    stop_conditions.should_stop() now short-circuits when the ledger
+    status is in {completed, stopped, failed, done}. When the stop
+    reason is TARGET_BEATEN, the tick loop grants the master one
+    FINAL tick (tracked via paper.final_tick_done) so writers +
+    reviewers actually get a chance to run after experiments win.
+    Prior behavior: the loop either thrashed on declared-done ledgers
+    or exited before the paper tick ran.
+    Files: stop_conditions.py, pipeline.py, ledger.py
+    (Ledger.set_paper_field)
+
+U3. Ledger compaction (bounded-context master prompt).
+    New Ledger.compact(keep_last_n_experiments=8) prunes old
+    completed experiments while preserving (a) the current best,
+    (b) the last N by started_at, (c) anything still running/queued.
+    Pruned ideas roll into state.experiments_summary, which the
+    master prompt now renders as an "already-tried" block so the
+    master cannot re-propose them even after pruning. Called every
+    tick from pipeline.py. Prevents the master prompt from ballooning
+    past 200 K tokens on long runs.
+    Files: ledger.py (compact), pipeline.py,
+    prompts/master_orchestrator.py (experiments_summary_block)
+
+U4. Opus routing for all writing + assembly agents.
+    _OPUS_TASKS now includes related_work_writing, bookend_writing,
+    latex_assembly, idea_validation, citation_verification. The three
+    writer agents (bookend_writer, related_work_writer,
+    latex_assembler) that previously defaulted to Sonnet are routed
+    to Opus via their respective task names. Prior behavior:
+    related-work prose on Sonnet was structurally weak and missed
+    citations.
+    Files: config.py (_OPUS_TASKS), agents/definitions.py
+
+U5. idea_validator subagent (cheap trainer-budget gate).
+    New Opus-routed agent that scores every queued idea 0-10 on
+    (expected gain from literature precedent, hook availability in
+    the SOTA evolve-block map, hook-category saturation, orthogonality
+    to the current best). Ensemble / seed-averaging tricks auto-floor
+    at 6.0 (they almost always work); bare LR / hparam tweaks cap at
+    3.0. The master spawns it whenever queued >= 3 and calls
+    reject_idea on weak scores so they never re-enter the pool.
+    Prevents the "27 failed single-tweak trainers" pattern from the
+    2026-04-13 run.
+    Files: agents/definitions.py (IDEA_VALIDATOR_PROMPT +
+    idea_validator entry), prompts/master_orchestrator.py (Rule 15)
+
+U6. Refinement loop with rewrite-on-new-best.
+    Master-prompt Rule 12 requires that the paper describe the
+    CURRENT best method: if best.exp_id has changed since
+    paper.last_written_at, the draft is stale and the master MUST
+    spawn revision_agent (or writers) before declaring stop. Rule 14
+    adds a mandatory review -> revise -> paper_quality_checker loop,
+    run up to config.max_refinement_passes (default 2), even when
+    metrics already pass the stop condition. The BUDGET block in the
+    prompt surfaces refinement_passes_used / max so the master can
+    see how many rounds remain. Directly addresses the 2026-04-13
+    bug where the paper shipped with "AWE-GS wavelet+entropy @
+    27.32 dB" while the actual winner was a 4-seed ensemble at
+    28.506 dB.
+    Files: prompts/master_orchestrator.py (Rules 12-16, refinement
+    block in BUDGET section)
+
+U7. Citation floor = 40, enforced at every layer.
+    Related-work / researcher / latex_assembler all require
+    references.bib to contain >= 40 verified entries before the paper
+    can ship:
+      - researcher targets >= 50 papers, must return with >= 40,
+        requires >= 3 survey papers.
+      - related_work_writer refuses to ship a section unless bib
+        >= 40, uses WebSearch/WebFetch to fill gaps, cites >= 40.
+      - latex_assembler hard-fails if `grep -c ^@ references.bib`
+        < 40 or if paper.log shows ANY "Citation ... undefined"
+        warnings, writing an assembler_error.json instead of a stale
+        PDF.
+      - paper_quality_checker treats missing-citation lists as hard
+        open_issues.
+    Files: agents/definitions.py (RESEARCHER_PROMPT,
+    RELATED_WORK_WRITER_PROMPT, LATEX_ASSEMBLER_PROMPT),
+    prompts/master_orchestrator.py (Rule 13)
+
+U8. Reproduce-first-on-one-scene rule (minimize experiments).
+    Master-prompt Rule 6 now forces the first repo_reproducer call
+    to pass scenes=["garden"] with max_iters=7000 (~20 min), verify
+    the reproduced PSNR is within 0.2 dB of the paper's reported
+    garden PSNR, and ONLY then move on to either (a) full 9-scene
+    reproduction in parallel, or (b) trusting the paper's per-scene
+    numbers directly. If the one-scene number is outside 0.2 dB, NO
+    trainers spawn — the master instead spawns debugger/researcher
+    to diagnose the discrepancy (wrong config, wrong eval crop,
+    missing TTA, etc.) before any experimental cost is incurred.
+    repo_reproducer now accepts an args.scenes list and merges (not
+    overwrites) sota_reproduced_metrics.json so partial reproductions
+    compose.
+    Files: prompts/master_orchestrator.py (Rule 6), agents/
+    definitions.py (REPO_REPRODUCER_PROMPT step 4-6)
+
+U9. SOTA-repo-first modification rule.
+    Master-prompt Rule 6a forbids spawning the Splatify gs_template
+    chain when target.git_url is set and the reproducer succeeded.
+    All experiment diffs must go to the cloned SOTA worktree via
+    freeform_mutator (Track B) or coder (Track A, against
+    evolve-blocks). gs_template is reserved for when the SOTA repo is
+    genuinely unusable (no git_url, build broken, segfaults). Stops
+    the pipeline from throwing away everything the paper's authors
+    already tuned.
+    Files: prompts/master_orchestrator.py (Rule 6a), plus new
+    MINIMIZE EXPERIMENTS block that targets <= 10 full-scene trainer
+    runs per 48 h budget.
+
+U10. MineRU-only PDF ingestion.
+    researcher and pdf_harvester are now both explicitly MineRU-only.
+    pdftotext / PyPDF / pdfminer fallbacks are forbidden — equations
+    and tables must survive extraction intact, because downstream
+    agents (ideator, baseline_extractor, related_work_writer) all
+    depend on that structure. If MineRU fails on a specific PDF, the
+    paper is skipped and logged, never silently lossy-extracted.
+    Files: agents/definitions.py (PDF_HARVESTER_PROMPT,
+    RESEARCHER_PROMPT step 5)
+
+U11. Shared-corpus ideation.
+    The ideator now explicitly reads the same literature that the
+    related_work_writer will cite: research_synthesis.md,
+    paper_summaries/ (>= 40 papers), literature_matrix.md,
+    references.bib, AND the SOTA repo source tree. This guarantees
+    every gap identified at ideation time is traceable to a specific
+    cited paper at writing time, eliminating the "ideas and citations
+    tell different stories" failure mode.
+    Files: agents/definitions.py (IDEATOR_PROMPT Inputs section)
+
+================================================================================
+12. SCIENTIFIC-RIGOR + AUTONOMY UPGRADES (2026-04-14 pm)
+================================================================================
+Added after the first full Ensemble-FastGS paper draft exposed the "real
+research paper" gap — positive deltas without variance, one-shot writing
+without iteration, and an ideator that kept proposing ideas from categories
+that had already failed 5 times in a row. The items below turn the pipeline
+from a "first-draft generator" into something that can be trusted to run
+for 48 h unattended and still produce a publishable paper.
+
+U12. Noise-floor measurement protocol.
+     Before any method can be declared `best`, the baseline is trained with
+     ≥ 3 different seeds on one representative scene (default: garden) and
+     the per-scene std-dev recorded in `ledger.noise_floor`. Deltas smaller
+     than 2 × std do not count as wins. Master Rule 17 enforces spawning
+     this as the VERY FIRST step after repo_reproducer succeeds. This is
+     the single biggest fix for the "we got +0.08 dB!" false-positive trap.
+     Files: prompts/master_orchestrator.py (Rule 17 + NOISE FLOOR block),
+     config.py (noise_floor_seeds, noise_floor_scene).
+
+U13. Mandatory post-winner pipeline (ablation + failure + compute-norm).
+     Master Rule 18 locks a 3-step pipeline the moment `best.exp_id` is
+     set: spawn `ablation_runner` + `failure_case_analyzer` +
+     a compute-normalized control (baseline with same extra compute) in
+     parallel. `latex_assembler` cannot run until all three return.
+     Without the compute-normalized control, any ensembling-style result
+     is refutable by every reviewer; this rule makes that comparison
+     mandatory.
+     Files: prompts/master_orchestrator.py (Rule 18).
+
+U14. Incremental paper writing + writer idempotency.
+     Master Rule 19 spawns `method_writer` + `experiments_writer` the moment
+     `best.exp_id` is set — in parallel with the post-winner experiments
+     — so the refinement loop gets 3-5 passes instead of 1. The writers
+     themselves are now idempotent: they read the existing section file
+     first, diff the numbers, preserve untouched prose, and converge
+     toward stable text over successive calls. Expressed in the new
+     shared INCREMENTAL_WRITING_RULES block included in method_writer,
+     experiments_writer, bookend_writer, introduction_writer, and
+     related_work_writer.
+     Files: prompts/master_orchestrator.py (Rule 19),
+     agents/definitions.py (INCREMENTAL_WRITING_RULES + 5 inclusions).
+
+U15. Phase token budget + day-2 behaviour.
+     `config.phase_budget_{{research,ideation,experiments,writing,review}}`
+     defines soft caps (5M / 5M / 25M / 10M / 5M). Master's tick prompt
+     renders the spent-vs-cap table every tick; Rule 20 says "if
+     experiments burn >25M without beating the noise floor, stop
+     exploring and pivot to ensemble tricks so the paper gets
+     finished, not so the experiments get wider". Rule 21 implements
+     day-2 behaviour: ticks after 24 h skip `researcher`/`ideator`
+     and focus on ablations, failure cases, rewriting, polish; if no
+     winner by 30 h, force-promote the best non-winning idea + K=4
+     ensemble as the last-ditch method.
+     Files: config.py (phase_budget_*), prompts/master_orchestrator.py
+     (Rules 20-21 + PHASE TOKEN BUDGETS block).
+
+U16. Category-level learning (ideator no longer repeats failed categories).
+     `ledger.category_stats` is a map {{HOOK_ID → {{tried, wins, best_delta,
+     avg_delta, saturated}}}} auto-updated by the trainer result ingester
+     via the new `Ledger.record_category_outcome()` method. When a hook
+     has `tried ≥ 5 and wins == 0`, it is marked `saturated` and the
+     ideator prompt Rule 2 is required to propose ZERO ideas against it
+     for the rest of the run. The master prompt renders a CATEGORY STATS
+     block every tick so the master sees the per-hook win rate at a
+     glance. Kills the "27 loss tweaks, 0 wins" failure mode from the
+     2026-04-13 run.
+     Files: ledger.py (record_category_outcome),
+     pipeline.py (_ingest_trainer_result + _update_category_stats),
+     agents/definitions.py (IDEATOR_PROMPT Process Step 2),
+     prompts/master_orchestrator.py (category_block).
+
+U17. Literature-driven synthesis (every idea must cite a paper).
+     Ideator Rule 3 now bans any idea that cannot be traced to a specific
+     entry in `paper_summaries/<author_year_name>.md`. Preferred idea
+     form: "paper X proposed technique Y for NeRF; apply Y to 3DGS" —
+     concrete, grounded, defensible. The `inspired_by` field must be
+     populated with real bib keys that the related_work_writer will cite.
+     This replaces the "it just feels like it would work" failure mode.
+     Files: agents/definitions.py (IDEATOR_PROMPT Process Step 3).
+
+U18. Stall detector (autonomous recovery from stuck trainers).
+     The pipeline tick loop now runs `_detect_stalls()` before each tick.
+     Each running experiment has a (status, metrics_count) signature; if
+     the signature is unchanged for ≥ 4 consecutive ticks (~20 min at the
+     default 5-min tick interval) the experiment is marked `stalled`,
+     its GPU reservation is released, and the next tick's master prompt
+     surfaces a STALLED EXPERIMENTS block so the master can diagnose or
+     replace it. Enables multi-day unattended operation without a stuck
+     trainer burning the entire GPU budget.
+     Files: pipeline.py (_detect_stalls, stall_state bookkeeping,
+     STALL_TICK_LIMIT), ledger.py (mark_experiment_stalled),
+     prompts/master_orchestrator.py (stall_block).
+
+--- U1-U18 file index ---
+U1  Tick prompt hardening            | prompts/master_orchestrator.py
+                                      | pipeline.py
+U2  Terminal-status + final tick     | stop_conditions.py, pipeline.py
+                                      | ledger.py (set_paper_field)
+U3  Ledger compaction                | ledger.py (compact),
+                                      | pipeline.py
+U4  Opus routing for writers         | config.py, agents/definitions.py
+U5  idea_validator subagent          | agents/definitions.py
+                                      | (IDEA_VALIDATOR_PROMPT)
+U6  Refinement / rewrite-on-new-best | prompts/master_orchestrator.py
+U7  40-citation floor                | agents/definitions.py,
+                                      | prompts/master_orchestrator.py
+U8  Reproduce-first on one scene     | prompts/master_orchestrator.py,
+                                      | agents/definitions.py
+                                      | (REPO_REPRODUCER_PROMPT)
+U9  SOTA-repo-first modification     | prompts/master_orchestrator.py
+U10 MineRU-only PDF ingestion        | agents/definitions.py
+U11 Shared-corpus ideation           | agents/definitions.py
+                                      | (IDEATOR_PROMPT)
+U12 Noise-floor protocol             | prompts/master_orchestrator.py,
+                                      | config.py
+U13 Post-winner pipeline             | prompts/master_orchestrator.py
+                                      | (Rule 18)
+U14 Incremental writing              | agents/definitions.py
+                                      | (INCREMENTAL_WRITING_RULES),
+                                      | prompts/master_orchestrator.py
+U15 Phase budgets + day-2            | config.py, prompts/master_orchestrator.py
+U16 Category-level learning          | ledger.py (record_category_outcome),
+                                      | pipeline.py, agents/definitions.py,
+                                      | prompts/master_orchestrator.py
+U17 Literature-driven synthesis      | agents/definitions.py
+                                      | (IDEATOR_PROMPT Step 3)
+U18 Stall detector                   | pipeline.py (_detect_stalls),
+                                      | ledger.py (mark_experiment_stalled),
+                                      | prompts/master_orchestrator.py
+
+================================================================================
+19. V2 ARCHITECTURE — PHASE AGENTS + BEST-FIRST TREE SEARCH (2026-04-16)
+================================================================================
+
+This section documents the v2 orchestrator that replaces the 300-turn Opus
+master with bounded deterministic phase-agents plus a Sakana-v2-style
+experiment tree. Target: ~60% cost reduction ($500 → $220/run) while
+preserving the full 42-agent subagent catalog.
+
+C6. First autonomous research pipeline to combine **deterministic phase
+    selection** (no LLM cost for routing) with **Best-First Tree Search
+    over experiments** (Sakana v2, Yamada et al. 2025) and **per-agent
+    SDK-enforced $ budgets**. The combination yields hard cost guarantees
+    absent in either prior work.
+
+C7. Hybrid autonomy: v1's evolutionary engine (EVOLVE-BLOCK + EoH + Elo +
+    falsification) remains available as a leaf worker callable by the v2
+    ExperimentPhase. No prior autonomous-research system supports both
+    bounded-phase and evolutionary modes behind one interface.
+
+C8. Domain-specialized BFTS scoring for GS research:
+      score(n) = 1.0·smoke_delta + 0.6·novelty − 0.15·depth − 0.02·spent
+                 + (−10 if debug_attempts ≥ 2 else 0)
+    where smoke_delta is the 500-iter PSNR differential vs reproduced
+    baseline. First empirical scoring of 3DGS hypotheses pre-training.
+
+U19 Phase-agent orchestrator         | orchestrator.py (PhaseOrchestrator),
+                                      | phases/base.py (Phase ABC),
+                                      | phases/{research,ideate,experiment,
+                                      |         ablate,write,review}.py
+    - Zero LLM calls for phase selection. Deterministic state machine
+      iterates [research → ideate → experiment → ablate → write → review],
+      skipping any phase whose is_complete() returns True or whose
+      per-phase $ budget is exceeded.
+    - Each phase owns its lifecycle and uses existing subagents as leaf
+      workers via _spawn_and_wait / _spawn_parallel.
+    - Hard budget enforcement: phase reads ledger.budget.cost_usd delta
+      before/after each spawn and charges the real cost to BudgetTracker.
+
+U20 Budget tracker                    | budget.py (BudgetTracker)
+    - Per-phase USD caps: research=$15, ideate=$10, experiment=$120,
+      ablate=$30, write=$25, review=$20 (total $220 default).
+    - charge(phase, usd, tokens) called after every subagent completion;
+      exceeded(phase) halts the phase and returns control to the orchestrator.
+    - Supports proportional scaling via --total-budget-usd CLI flag —
+      a single number rescales all phase caps.
+
+U21 Best-First Tree Search            | tree_search.py (score_node, TreeNode,
+                                      | ExperimentTree.seeded_nodes)
+    - Priority-queue expansion of experiment tree. seeded_nodes() and
+      promotable_nodes() return nodes sorted by BFTS score descending.
+    - Frontier early-stop: frontier_max_score() — when below threshold,
+      no remaining node is promising → halt experimentation.
+    - Cost attribution: attribute_cost(idea_id, usd) attaches real
+      ledger cost to each node so BFTS penalizes runaway subtrees.
+
+U22 Per-node budget (Sakana v2)       | phases/experiment.py
+                                      | (PER_NODE_BUDGET_USD, within_budget)
+    - Each experiment-tree node has a hard $ cap (default $8). Once a
+      node's cumulative spend exceeds this, it is pruned with reason
+      node_budget_exhausted. Prevents a single failing idea from
+      consuming the whole experiment-phase budget.
+
+U23 Trainer→debugger auto-retry      | phases/experiment.py
+                                      | (MAX_DEBUG_ATTEMPTS, debug loop)
+    - On trainer failure, ExperimentPhase auto-spawns debugger with the
+      error trace, then resets the node to smoke_done so BFTS retries
+      the trainer after the fix. Max 2 debug attempts per node before
+      the node is finalized as failed.
+    - Matches Sakana v2's per-node debug loop; absent in v1.
+
+U24 VLM figure verification          | agents/definitions.py
+                                      | (FIGURE_VLM_CHECKER_PROMPT,
+                                      |  figure_vlm_checker)
+    - New subagent that opens every figure in the paper as an image
+      (Claude vision) and verifies: axis labels match caption, legend
+      entries match method names, subfigure ordering matches "(a/b/c)",
+      numbers in the figure match training_results.json.
+    - Catches rendering bugs that paper_quality_checker (text-only)
+      misses: cut-off labels, swapped axes, missing legends.
+    - Invoked in WritePhase after latex_assembler, before paper_quality_checker.
+
+U25 Per-agent SDK budget caps        | agents/definitions.py (AGENT_LIMITS)
+    - Every one of the 42 subagents has an explicit max_turns +
+      max_budget_usd wired into ClaudeAgentOptions at dispatch
+      (pipeline.py _invoke_llm). Trainer capped at 25 turns × $4
+      (was 120 × unbounded); researcher 15 × $3.
+    - SDK auto-terminates the agent when its budget hits the cap — hard
+      enforcement, not a soft rule in the prompt.
+
+U26 Smoke-gate state machine         | pipeline.py (_idea_has_passing_smoke),
+                                      | prompts/master_orchestrator.py (Rule 15)
+    - Idea lifecycle is a hard state machine: queued → validated →
+      smoke_passed → trained. apply_decisions rejects trainer spawns
+      without a passing smoke_trainer result (delta > −1.0 dB) within the
+      last 20 subagent_results; emits spawn_rejected_no_smoke event.
+    - Compaction preserves fenced ```json blocks so the smoke-gate
+      extractor can parse compacted results (round-trip verified).
+
+U27 Stall auto-kill                   | pipeline.py (_detect_stalls,
+                                      | STALL_TICK_LIMIT=2)
+    - Stalled experiments (no metrics progress in 2 ticks ≈ 10 min) are
+      transitioned to terminal failed_stall AND their ns-train.*<exp_id>
+      subprocesses are pkill-ed so the GPU is actually freed.
+    - Previous behavior: stalled exp was marked "stalled" but subprocess
+      continued holding VRAM indefinitely; master re-evaluated every tick.
+
+U28 Idea validator → ledger fold      | pipeline.py (fold_artifacts_into_ledger,
+                                      | idea_validation.json)
+    - idea_validation.json produced by idea_validator is now folded into
+      the ledger so ideas.queued[].validated is set True/False based on
+      the verdict. Previously the validator's scoring was written to disk
+      but never consumed, so IdeatePhase.is_complete() could never fire.
+
+U29 Noise-floor default seed         | ledger.py (new_ledger)
+    - noise_floor.psnr_std = 0.1 seeded into every new ledger so the
+      BFTS winner threshold (2 × psnr_std = 0.2 dB) is well-defined from
+      tick 1. baseline_runner can overwrite with an empirical value from
+      repeated runs.
+
+U30 Workshop-scope default            | config.py (paper_scope),
+                                      | phases/{write,review}.py
+    - paper_scope: "workshop" | "full" in PipelineConfig, default
+      "workshop". Threaded into section writers and reviewers via
+      shared_args["paper_scope"], so writers target a shorter realistic
+      bar (Sakana v2's own target — workshop papers) rather than full
+      conference length by default.
+
+U31 Deterministic smoke-test suite    | tests/test_v2_architecture.py
+    - Eight self-contained tests (no pytest required) covering budget
+      overflow, BFTS scoring, priority-queue ordering, compact→extract
+      round-trip, idea_validation fold, noise-floor default, import
+      graph. Runnable as `python3 tests/test_v2_architecture.py`.
+
+C9. Cost ceiling vs prior art (self-reported):
+     - AI Scientist v1 (Lu et al. 2024):     ~$15/paper, weak verification
+     - AI Scientist v2 (Yamada et al. 2025): ~$20/paper, workshop-level bar
+     - Agent Laboratory (Schmidgall 2025):   ~$13/paper, limited autonomy
+     - paper-writer v1 (ours, Apr 2026):     ~$500/run, main-conference bar
+     - paper-writer v2 (ours, Apr 2026):     ~$220 hard cap, workshop default
+    v2 is ~10× Sakana v2's cost but (a) targets a harder reproduction-
+    grounded task (reproducing + extending a specific SOTA repo, not open
+    ideation), (b) runs real ns-train GPU experiments rather than
+    simulated/toy experiments, and (c) retains full conference-scope
+    capability via paper_scope="full".
+
+================================================================================
+END
+================================================================================

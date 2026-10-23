@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SplatLab · autonomous 3DGS research lab</title>
+<meta name="description" content="Control panel for an autonomous Gaussian-Splatting research lab. Launch, observe, stop, and resume 24-hour /research runs from the browser." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='11' cy='12' r='6' fill='%2322d3ee'/%3E%3Ccircle cx='21' cy='19' r='5' fill='%238b5cf6'/%3E%3Ccircle cx='15' cy='22' r='3.5' fill='%2310b981'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<!-- ───────────────────────── top bar ───────────────────────── -->
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="11" cy="12" r="6" fill="var(--accent-cyan)" opacity="0.9"/>
+      <circle cx="21" cy="19" r="5" fill="var(--accent-purple)" opacity="0.9"/>
+      <circle cx="15" cy="22" r="3.5" fill="var(--accent-mint)" opacity="0.9"/>
+    </svg>
+    <div class="brand-text">
+      <div class="brand-name">SplatLab</div>
+      <div class="brand-sub">autonomous 3D Gaussian-Splatting research lab</div>
+    </div>
+  </div>
+
+  <div class="topbar-center">
+    <div id="runPill" class="run-pill" title="The run this dashboard is inspecting">
+      <span class="dot" id="pillDot"></span>
+      <span id="pillRun" class="pill-run">no run</span>
+      <span id="pillClock" class="pill-clock">—</span>
+      <span id="pillCap" class="pill-cap"></span>
+    </div>
+    <select id="runSelect" class="run-select" title="Switch which run you are inspecting"></select>
+  </div>
+
+  <div class="topbar-right">
+    <div id="gpuStrip" class="gpu-strip" title="GPU memory usage (best-effort via nvidia-smi)"></div>
+    <div class="actions">
+      <button id="btnStop"   class="btn btn-amber"  title="Graceful stop">Stop</button>
+      <button id="btnResume" class="btn btn-mint"   title="Resume a stopped/crashed run">Resume</button>
+      <button id="btnKill"   class="btn btn-red"    title="Hard-kill the tmux session">Kill</button>
+    </div>
+  </div>
+</header>
+
+<!-- ───────────────────────── tab bar ───────────────────────── -->
+<nav class="tabs" id="tabs">
+  <button class="tab" data-tab="new">＋ New Run</button>
+  <button class="tab active" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="experiments">Experiments</button>
+  <button class="tab" data-tab="live">Live</button>
+  <button class="tab" data-tab="paper">Paper</button>
+  <button class="tab" data-tab="runs">Runs</button>
+  <button class="tab" data-tab="help">Help</button>
+  <div class="tabs-spacer"></div>
+  <div id="connDot" class="conn" title="Live connection status"><span class="dot"></span><span id="connText">connecting…</span></div>
+</nav>
+
+<main class="content">
+
+  <!-- ───────────── NEW RUN ───────────── -->
+  <section class="panel" data-panel="new">
+    <div class="panel-head">
+      <h2>Launch a research run</h2>
+      <p class="muted">Same as typing <code>/research "idea" --hours N</code> in the terminal. This seeds the idea into <code>config.yaml</code>, starts Claude Code in the persistent <code>splatlab</code> tmux session, and dispatches the master orchestrator. <strong>One run at a time</strong> (single active run).</p>
+    </div>
+
+    <div id="launchBlocked" class="banner banner-warn" hidden>
+      A run is already active in the tmux session. Stop or kill it before launching a new one.
+    </div>
+
+    <form id="launchForm" class="form">
+      <div class="field">
+        <label for="fIdea">Research idea <span class="req">required</span></label>
+        <p class="hint">A one-line research question is enough. Prose, quotes, dashes, and newlines are fine — it is written into <code>config.yaml</code>, never onto a command line.</p>
+        <textarea id="fIdea" rows="3" placeholder="e.g. Improve human-region fidelity in compositional urban Gaussian Splatting (OmniRe) on PandaSet by enriching the SMPL-bound human primitive…"></textarea>
+        <button type="button" id="loadCfgIdea" class="linklike" hidden></button>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="fHours">Wall-clock hours <span class="req">required</span></label>
+          <p class="hint">Authoritative cap. The lab runs the full duration — finding a result early does not stop it.</p>
+          <input id="fHours" type="number" min="1" max="168" value="24" />
+        </div>
+        <div class="field">
+          <label for="fPreset">Model preset</label>
+          <p class="hint">Which model tier the subagents use.</p>
+          <select id="fPreset"></select>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="fPaper">Target paper URL <span class="opt">optional</span></label>
+          <p class="hint">An arXiv/PDF link. Triggers MineRU extraction of the baseline's reported metrics.</p>
+          <input id="fPaper" type="url" placeholder="https://arxiv.org/abs/…" />
+        </div>
+        <div class="field">
+          <label for="fGit">Baseline git URL <span class="opt">optional</span></label>
+          <p class="hint">A GitHub repo to clone, reproduce, and improve (Track A).</p>
+          <input id="fGit" type="url" placeholder="https://github.com/…" />
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="fScenes">Scenes <span class="opt">optional</span></label>
+          <p class="hint">Comma-separated scene ids. Empty = use config defaults.</p>
+          <input id="fScenes" type="text" placeholder="001,011,028,053" />
+        </div>
+        <div class="field">
+          <label for="fBudget">Max budget USD <span class="opt">optional</span></label>
+          <p class="hint">Leave empty on Claude Max (wall-clock only). Set a number for API billing.</p>
+          <input id="fBudget" type="number" min="0" step="1" placeholder="(none)" />
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" id="btnLaunch" class="btn btn-launch">Launch Run ▸</button>
+        <span id="launchMsg" class="launch-msg"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ───────────── OVERVIEW ───────────── -->
+  <section class="panel active" data-panel="overview">
+    <div id="ovEmpty" class="empty">No run selected.</div>
+    <div id="ovBody" hidden>
+      <div class="cards">
+        <div class="card" id="cardStatus"></div>
+        <div class="card" id="cardBest"></div>
+        <div class="card" id="cardIdeas"></div>
+        <div class="card" id="cardBudget"></div>
+      </div>
+      <div class="card wide" id="cardTarget"></div>
+      <div class="card wide" id="cardThesis"></div>
+      <div class="card wide" id="cardMilestones"></div>
+      <div class="card wide" id="cardBaselines"></div>
+    </div>
+  </section>
+
+  <!-- ───────────── EXPERIMENTS ───────────── -->
+  <section class="panel" data-panel="experiments">
+    <div class="panel-head"><h2>Experiments</h2><p class="muted">The cascade: <span class="leg leg-smoke">smoke</span> → <span class="leg leg-probe">probe</span> → <span class="leg leg-multi">multi-scene</span>. Each idea is filtered cheaply before it earns full compute.</p></div>
+    <div id="expCascade" class="cascade"></div>
+    <div class="table-wrap"><table id="expTable" class="dtable"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- ───────────── LIVE ───────────── -->
+  <section class="panel" data-panel="live">
+    <div class="live-grid">
+      <div class="live-col">
+        <div class="panel-head"><h2>Event feed</h2><p class="muted"><code>events.jsonl</code>, newest first. The master's durable audit log.</p></div>
+        <div id="eventFeed" class="event-feed"></div>
+      </div>
+      <div class="live-col">
+        <div class="panel-head"><h2>Master console <span id="consoleState" class="console-state">—</span></h2><p class="muted">Read-only tail of the tmux pane (<code>tmux attach -t splatlab</code> for full).</p></div>
+        <pre id="tmuxConsole" class="console">No live session.</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── PAPER ───────────── -->
+  <section class="panel" data-panel="paper">
+    <div class="panel-head"><h2>Paper &amp; artifacts</h2><p class="muted">The compiled PDF, generated figures, and key reports for the selected run.</p></div>
+    <div id="paperBody"></div>
+  </section>
+
+  <!-- ───────────── RUNS ───────────── -->
+  <section class="panel" data-panel="runs">
+    <div class="panel-head"><h2>All runs</h2><p class="muted">Every <code>workspace/run_*</code> on disk. Click a card to inspect it; resume a stopped or crashed one.</p></div>
+    <div id="runsGrid" class="runs-grid"></div>
+  </section>
+
+  <!-- ───────────── HELP ───────────── -->
+  <section class="panel" data-panel="help">
+    <div class="panel-head"><h2>How SplatLab works</h2></div>
+    <div class="help">
+      <p>SplatLab is a thin control panel over the existing autonomous lab. There is no separate engine: the intelligence <em>is</em> Claude Code running the <code>/research</code> master prompt inside a persistent <code>tmux</code> session. All durable state lives on disk in <code>workspace/run_&lt;ts&gt;/ledger.json</code> and <code>events.jsonl</code>. This dashboard reads that state and drives the same lifecycle commands — so closing your laptop, refreshing the page, or restarting the server all reconnect to the same live job.</p>
+
+      <h3>Every control, and what it actually does</h3>
+      <table class="dtable help-table">
+        <thead><tr><th>Control</th><th>Equivalent command</th><th>What happens under the hood</th></tr></thead>
+        <tbody>
+          <tr><td><b>Launch Run</b></td><td><code>/research "idea" --hours N</code></td><td>Writes your idea + flags into <code>config.yaml</code>, starts <code>claude --dangerously-skip-permissions</code> in the <code>splatlab</code> tmux session, and sends the <code>/research</code> command. The master runs <code>init_workspace.sh</code>, seeds a ledger, and loops for N hours dispatching ~30 subagents.</td></tr>
+          <tr><td><b>Stop</b></td><td><code>/research-stop</code></td><td>Atomically sets <code>status: stopping</code> in the ledger. The master notices at its next iteration (≤5 min), lets in-flight scenes finish, and halts. Nothing is hard-killed.</td></tr>
+          <tr><td><b>Resume</b></td><td><code>/research-resume</code></td><td>Starts a session and sends <code>/research-resume</code>. The master heals stalled experiments and continues the most recent run from its ledger checkpoint.</td></tr>
+          <tr><td><b>Kill</b></td><td><code>tmux kill-session</code></td><td>Hard-stops the tmux session immediately. The ledger survives intact — use Resume to pick the run back up. Use this only if the master is wedged.</td></tr>
+          <tr><td><b>Overview</b></td><td><code>/research-status</code></td><td>Reads the ledger and shows status, thesis, ideas, the current best result, milestone progress, and budget.</td></tr>
+          <tr><td><b>Experiments</b></td><td>—</td><td>The <code>experiments[]</code> array from the ledger, plus the smoke → probe → multi-scene cascade each idea passes through.</td></tr>
+          <tr><td><b>Live</b></td><td><code>tail -f events.jsonl</code> / <code>tmux attach</code></td><td>Streams new ledger events over SSE and tails the master's tmux console (read-only).</td></tr>
+          <tr><td><b>Paper</b></td><td>—</td><td>Serves the compiled <code>paper.pdf</code>, the generated figures, and reports (RUN_REPORT, thesis, bottleneck/limitation analyses).</td></tr>
+          <tr><td><b>Runs</b></td><td>—</td><td>Lists every run on disk so you can inspect or resume any of them.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The cascade (how ideas earn compute)</h3>
+      <p>Each idea is filtered cheaply before it gets a GPU: a <b>500-iteration smoke test</b> (~3 min) gates a <b>single-scene full-iteration probe</b>, which gates the expensive <b>multi-scene deployment</b>. Most ideas die at smoke or probe — that is the point. Only signal that survives full-iteration single-scene training earns the 7× multi-scene fan-out.</p>
+
+      <h3>Session persistence</h3>
+      <p>The dashboard keeps no run state of its own. On load it asks the backend for the live run and reconnects. Because the run lives in tmux and on disk — independent of both the browser and this server — you can refresh, close the laptop, or restart the backend and pick up exactly where you were.</p>
+
+      <h3>Remote access &amp; auth</h3>
+      <p>By default the server binds <code>127.0.0.1</code> (localhost only). To reach it from a laptop, run it with <code>HOST=0.0.0.0 GSS_TOKEN=&lt;secret&gt;</code> and open <code>http://&lt;box&gt;:8420</code>; the page will ask for the token once and remember it. Never bind <code>0.0.0.0</code> without a token.</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- token prompt -->
+<div id="tokenModal" class="modal" hidden>
+  <div class="modal-box">
+    <h3>Access token required</h3>
+    <p class="muted">This SplatLab server is token-protected. Paste the <code>GSS_TOKEN</code>.</p>
+    <input id="tokenInput" type="password" placeholder="token" />
+    <div class="modal-actions"><button id="tokenSave" class="btn btn-mint">Save</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
